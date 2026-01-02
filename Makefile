@@ -70,8 +70,9 @@ lint: ##H @General Run ruff lint
 	ruff check src/git_sqlite_filter test
 
 .PHONY: test
-test:	##H @General Run the test suite (using pytest)
-	pytest -v test/test_filters.py
+test: ##H @General Run tests with coverage report
+	coverage run
+	coverage report
 
 .PHONY: install
 install: ##H @General Install the package locally in editable mode
@@ -88,7 +89,7 @@ clean: ##H @General Remove build artifacts
 
 .PHONY: dev-deps
 dev-deps: ##H @General Install development dependencies
-	pip install black isort build wheel ruff twine pytest
+	pip install black isort build wheel ruff twine pytest coverage
 
 .PHONY: arch
 arch:	##H @Packaging Build Arch Linux package (requires makepkg)
