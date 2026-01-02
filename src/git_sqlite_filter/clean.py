@@ -251,6 +251,24 @@ class DatabaseDumper:
                 )
 
 
+def maybe_warn():
+    """Print a safety warning if not printed recently (5s debounce)."""
+    sentinel = os.path.join(tempfile.gettempdir(), "git_sqlite_warn_lock")
+    try:
+        # Check if warning was shown recently
+        if os.path.exists(sentinel) and (time.time() - os.path.getmtime(sentinel) < 5):
+            return
+
+        log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
+        log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
+
+        # Update timestamp
+        with open(sentinel, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass  # Ignore permissions/IO errors
+
+
 def main():
     parser = argparse.ArgumentParser(description="Git clean filter for SQLite")
     parser.add_argument("db_file", help="Path to the SQLite database file")
@@ -286,18 +304,7 @@ def main():
         except Exception as e:
             log(f"sqlite3 binary version: error getting version ({e})")
 
-    # Safety warning with 5s debounce (User Request)
-    sentinel = os.path.join(tempfile.gettempdir(), "git_sqlite_warn_lock")
-    try:
-        if not os.path.exists(sentinel) or (
-            time.time() - os.path.getmtime(sentinel) > 5
-        ):
-            log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
-            log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
-            with open(sentinel, "w") as f:
-                f.write(str(time.time()))
-    except OSError:
-        pass  # Ignore permissions/IO errors
+    maybe_warn()
 
     # Use a temporary backup for consistency and lock avoidance
     with tempfile.NamedTemporaryFile(
