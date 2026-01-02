@@ -220,10 +220,7 @@ class DatabaseDumper:
 
         except Exception as e:
             log(f"dump failed: {e}")
-            if self.debug:
-                import traceback
-
-                traceback.print_exc()
+            # Don't output ANYTHING on failure
             return False
         finally:
             if self.conn:
