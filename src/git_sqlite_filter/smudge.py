@@ -28,43 +28,55 @@ def collation_func(s1, s2):
 def filter_sql_stream(stream, debug=False):
     """Filter out internal schema creation and handle transactions."""
     yield "BEGIN TRANSACTION;\n"
-    
+
     buffer = []
-    
+
     for line in stream:
         buffer.append(line)
-        
+
         # Statement boundary detection
         if line.strip().endswith(";"):
             statement = "".join(buffer)
             buffer = []
-            
+
             statement_upper = statement.upper().strip()
-            
+
             # Skip internal tables and sequence
-            if "CREATE TABLE" in statement_upper and "SQLITE_SEQUENCE" in statement_upper:
-                if debug: log("skipping sqlite_sequence creation")
+            if (
+                "CREATE TABLE" in statement_upper
+                and "SQLITE_SEQUENCE" in statement_upper
+            ):
+                if debug:
+                    log("skipping sqlite_sequence creation")
                 continue
 
-            if ("INSERT INTO" in statement_upper) and ("SQLITE_MASTER" in statement_upper or "SQLITE_STAT" in statement_upper):
-                if debug: log(f"skipping internal metadata insert: {statement[:30]}...")
+            if ("INSERT INTO" in statement_upper) and (
+                "SQLITE_MASTER" in statement_upper or "SQLITE_STAT" in statement_upper
+            ):
+                if debug:
+                    log(f"skipping internal metadata insert: {statement[:30]}...")
                 continue
-            
+
             # Prevent nested transactions
-            if any(statement_upper.startswith(p) for p in ["BEGIN TRANSACTION", "COMMIT", "ROLLBACK"]):
-                if debug: log(f"skipping transaction command: {statement_upper}")
+            if any(
+                statement_upper.startswith(p)
+                for p in ["BEGIN TRANSACTION", "COMMIT", "ROLLBACK"]
+            ):
+                if debug:
+                    log(f"skipping transaction command: {statement_upper}")
                 continue
 
             if debug:
                 log(f"yielding statement: {statement.strip()[:60]}...")
             yield statement
-            
+
     if buffer:
         rem = "".join(buffer)
         if rem.strip():
-            if debug: log(f"yielding trailing buffer: {rem.strip()[:60]}...")
+            if debug:
+                log(f"yielding trailing buffer: {rem.strip()[:60]}...")
             yield rem
-        
+
     yield "COMMIT;\n"
 
 
@@ -78,7 +90,7 @@ class DatabaseRestorer:
     def restore(self, sql_script):
         """Restore database from SQL script with collation discovery."""
         max_retries = 100
-        
+
         for i in range(max_retries):
             self._create_temp_db()
             try:
@@ -90,20 +102,24 @@ class DatabaseRestorer:
                 err_msg = str(e).lower()
                 if self.debug:
                     log(f"caught operational error: {e}")
-                
+
                 if not self._ensure_collation(e):
                     log(f"error: restore failed: {e}")
-                    
+
                     if "no such table" in err_msg:
-                         # Forensic dump of the DB state
-                         try:
-                             tables = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-                             log(f"current tables in DB: {[t[0] for t in tables]}")
-                             # Check if fts5 is even enabled
-                             self.conn.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(c)")
-                             log("fts5 module seems supported in this python session")
-                         except Exception as probe_err:
-                             log(f"capability check failed: {probe_err}")
+                        # Forensic dump of the DB state
+                        try:
+                            tables = self.conn.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            ).fetchall()
+                            log(f"current tables in DB: {[t[0] for t in tables]}")
+                            # Check if fts5 is even enabled
+                            self.conn.execute(
+                                "CREATE VIRTUAL TABLE fts_probe USING fts5(c)"
+                            )
+                            log("fts5 module seems supported in this python session")
+                        except Exception as probe_err:
+                            log(f"capability check failed: {probe_err}")
 
                     if self.debug:
                         log("--- FAILED SQL SCRIPT ---")
@@ -118,10 +134,10 @@ class DatabaseRestorer:
         """Initialize a fresh temporary database with registered collations."""
         if self.tmp_path and os.path.exists(self.tmp_path):
             os.remove(self.tmp_path)
-        
+
         fd, self.tmp_path = tempfile.mkstemp(prefix="sqlite_smudge_", suffix=".sqlite")
         os.close(fd)
-        
+
         self.conn = sqlite3.connect(self.tmp_path)
         for col in self.registered_collations:
             self.conn.create_collation(col, collation_func)
@@ -152,7 +168,9 @@ class DatabaseRestorer:
 def main():
     parser = argparse.ArgumentParser(description="Git smudge filter for SQLite")
     parser.add_argument("db_file", nargs="?", help="Ignored but passed by Git")
-    parser.add_argument("--schema", help="Path to a base schema file to apply before data")
+    parser.add_argument(
+        "--schema", help="Path to a base schema file to apply before data"
+    )
     parser.add_argument("--debug", action="store_true", help="Log debug info to stderr")
     args = parser.parse_args()
 
@@ -167,7 +185,7 @@ def main():
 
     if debug:
         log("parsing SQL stream from stdin")
-    
+
     sql_lines.extend(list(filter_sql_stream(sys.stdin, debug=debug)))
     script = "".join(sql_lines)
 
