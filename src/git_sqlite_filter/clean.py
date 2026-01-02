@@ -263,7 +263,7 @@ def main():
     parser.add_argument(
         "--schema-only", action="store_true", help="Output only schema (no INSERTs)"
     )
-    parser.add_argument("--debug", action="store_true", help="Log debug info to stderr")
+    parser.add_argument("--debug", action="store_true", help="Log debug info to stderr (also triggered by GIT_TRACE=1)")
     args = parser.parse_args()
 
     debug = args.debug or os.environ.get("GIT_TRACE") in ("1", "true", "2")

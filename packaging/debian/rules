@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+# See debhelper(7) (provided by debhelper package)
+
+# %:
+#    dh $@ --with python3 --buildsystem=pybuild
+
+export PYBUILD_NAME=git-sqlite-filter
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild

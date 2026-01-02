@@ -26,6 +26,7 @@ var/
 # PyInstaller
 *.manifest
 *.spec
+!packaging/**/*.spec
 
 # Installer logs
 pip-log.txt

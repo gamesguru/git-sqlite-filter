@@ -14,9 +14,14 @@ _help:
 			targets[NR] = target; docs[NR] = doc; list[NR] = 1; \
 		} \
 		END { \
+			print "\n\033[1;36mCore Commands:\033[0m"; \
 			for (i = 1; i <= NR; i++) { \
 				if (list[i]) printf "  \033[1;34m%-*s\033[0m  %s\n", max, targets[i], docs[i]; \
 			} \
+			print "\n\033[1;36mPackaging Commands:\033[0m"; \
+			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "arch", "Build Arch Linux package (requires makepkg)"; \
+			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "deb", "Build Debian package (requires dpkg-buildpackage)"; \
+			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "rpm", "Build RPM package (requires rpmbuild)"; \
 			print ""; \
 		}' $(MAKEFILE_LIST)
 
@@ -55,6 +60,20 @@ format:	##H Run black & isort
 .PHONY: lint
 lint: ##H Run ruff lint
 	ruff check src/git_sqlite_filter test
+
+.PHONY: arch
+arch:	##H Build Arch Linux package
+	cd packaging/arch && makepkg -s
+
+.PHONY: deb
+deb:	##H Build Debian package
+	ln -sf packaging/debian debian
+	dpkg-buildpackage -us -uc -b
+	rm -rf debian
+
+.PHONY: rpm
+rpm:	##H Build RPM package
+	rpmbuild -ba packaging/rpm/git-sqlite-filter.spec
 
 .PHONY: test
 test:	##H Run the test suite

@@ -1,0 +1,3 @@
+man/git-sqlite-clean.1 usr/share/man/man1/
+man/git-sqlite-smudge.1 usr/share/man/man1/
+man/git-sqlite.1 usr/share/man/man1/
