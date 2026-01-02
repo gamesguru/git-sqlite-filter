@@ -12,27 +12,6 @@ import time
 # Handle broken pipes (e.g. | head) without stack trace
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-# Safety warning messages (shared with smudge)
-WARNING_MSG = [
-    "WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!",
-    "TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!",
-]
-
-# Set of Git sub‑commands that can write to the repository
-WRITE_CMDS = {
-    "checkout",
-    "pull",
-    "reset",
-    "merge",
-    "rebase",
-    "push",
-    "commit",
-    "apply",
-    "cherry-pick",
-    "revert",
-}
-
-
 TOOL = "[git-sqlite-clean]"
 
 

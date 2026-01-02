@@ -12,26 +12,6 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 TOOL = "[git-sqlite-smudge]"
 
-# Safety warning to match clean.py
-WARNING_MSG = [
-    "WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!",
-    "TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!",
-]
-
-# Set of Git sub-commands that can write to the repository
-WRITE_CMDS = {
-    "checkout",
-    "pull",
-    "reset",
-    "merge",
-    "rebase",
-    "push",
-    "commit",
-    "apply",
-    "cherry-pick",
-    "revert",
-}
-
 
 def log(msg):
     sys.stderr.write(f"{TOOL} {msg}\n")
