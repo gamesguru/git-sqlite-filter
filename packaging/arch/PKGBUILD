@@ -7,11 +7,12 @@ arch=('any')
 url="https://github.com/gamesguru/git-sqlite-filter"
 license=('MIT')
 depends=('python')
-source=("https://github.com/gamesguru/git-sqlite-filter/archive/v${pkgver}.tar.gz")
+_name=${pkgname//-/_}
+source=("https://files.pythonhosted.org/packages/source/${pkgname::1}/${pkgname}/${_name}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "${_name}-${pkgver}"
 
     # Install scripts directly
     install -Dm755 src/git_sqlite_filter/clean.py "$pkgdir/usr/bin/git-sqlite-clean"

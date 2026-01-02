@@ -1,0 +1,7 @@
+include LICENSE
+include README.rst
+include pyproject.toml
+recursive-include man *
+recursive-include configs *
+recursive-include tests *
+recursive-include packaging *
