@@ -1,0 +1,7 @@
+[filter "sqlite"]
+	clean = git-sqlite-clean %f
+	smudge = git-sqlite-smudge %f
+	required = true
+[diff "sqlite"]
+	# Allows 'git diff' to show readable SQL changes for binary files
+	textconv = git-sqlite-clean
