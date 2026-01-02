@@ -1,6 +1,5 @@
 import io
 import os
-import sqlite3
 import subprocess
 import sys
 
@@ -91,21 +90,8 @@ def test_binary_fallback():
     with open(binary_db, "w") as f:
         f.write(content)
 
-    args = type(
-        "Args", (), {"float_precision": 5, "schema_only": False, "debug": False}
-    )()
-    dumper = DatabaseDumper(binary_db, args)
-
-    out = io.StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = out
-    try:
-        # We need to simulate the main check if DatabaseDumper doesn't handle non-sqlite files internally
-        # Actually DatabaseDumper.run expects a valid sqlite file.
-        # The main() in clean.py handles the fallback.
-        # Let's test by calling the script as a subprocess to be sure we hit the main logic.
-        cmd = [sys.executable, "src/git_sqlite_filter/clean.py", binary_db]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        assert content in result.stdout
-    finally:
-        sys.stdout = old_stdout
+    # The main() in clean.py handles the fallback for non-sqlite files.
+    # Test by calling the script as a subprocess.
+    cmd = [sys.executable, "src/git_sqlite_filter/clean.py", binary_db]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert content in result.stdout
