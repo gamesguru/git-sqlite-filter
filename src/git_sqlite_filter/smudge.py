@@ -37,36 +37,6 @@ def log(msg):
     sys.stderr.write(f"{TOOL} {msg}\n")
 
 
-def maybe_warn():
-    """Smudge is always a write operation (checkout, pull, merge, etc.).
-
-    Prompts for confirmation unless GIT_SQLITE_ALLOW_WRITE=1 is set.
-    Uses /dev/tty to bypass stdin pipe.
-    """
-    # Allow bypass via env var for CI/automation
-    if os.environ.get("GIT_SQLITE_ALLOW_WRITE") == "1":
-        return
-
-    for line in WARNING_MSG:
-        log(line)
-
-    # Try to prompt user via /dev/tty (bypasses stdin pipe)
-    try:
-        with open("/dev/tty", "r") as tty:
-            sys.stderr.write(f"{TOOL} Continue with write operation? [y/N] ")
-            sys.stderr.flush()
-            response = tty.readline().strip().lower()
-            if response != "y":
-                log("Aborted by user.")
-                sys.exit(1)
-    except (OSError, IOError):
-        # No TTY available (CI, pipes, etc.) - abort unless env var is set
-        log(
-            "No TTY available for confirmation. Set GIT_SQLITE_ALLOW_WRITE=1 to proceed."
-        )
-        sys.exit(1)
-
-
 def collation_func(s1, s2):
     """Dumb lexicographical sort for unregistered collations."""
     if s1 == s2:
@@ -99,7 +69,10 @@ def filter_sql_stream(stream, debug=False):
             if "CREATE TRIGGER" in statement_upper:
                 trigger_name = statement_upper.split()[2]  # CREATE TRIGGER name
                 # Heuristic: FTS triggers reference the content/docsize/config tables
-                if any(x in statement_upper for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")):
+                if any(
+                    x in statement_upper
+                    for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")
+                ):
                     if debug:
                         log(f"skipping FTS5 internal trigger: {trigger_name}")
                     continue

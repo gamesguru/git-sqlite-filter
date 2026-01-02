@@ -2,12 +2,10 @@ import io
 import sqlite3
 import sys
 from unittest import mock
-from unittest.mock import mock_open
 
 from git_sqlite_filter.clean import (
     collation_func,
     format_sql_value,
-    maybe_warn,
 )
 
 
@@ -24,25 +22,6 @@ def test_collation_func():
     assert collation_func("a", "a") == 0
     assert collation_func("b", "a") == 1
     assert collation_func("a", "b") == -1
-
-
-def test_does_warn_write_cmd(monkeypatch, capsys):
-    # Simulate being called via git-checkout
-    monkeypatch.setattr(sys, "argv", ["git-checkout", "dummy.db"])
-    # Mock /dev/tty to return 'y' so the function continues
-    monkeypatch.setattr("builtins.open", mock_open(read_data="y\n"))
-    maybe_warn()
-    captured = capsys.readouterr().err
-    assert "WARNING: YOU CAN EASILY LOSE DATA" in captured
-
-
-def test_does_not_warn_read_cmd(monkeypatch, capsys):
-    # Simulate being called via git-sqlite-clean (not a write cmd)
-    monkeypatch.setattr(sys, "argv", ["git-sqlite-clean", "dummy.db"])
-    maybe_warn()
-    captured = capsys.readouterr().err
-    # Should NOT emit warning for non-write commands
-    assert "WARNING" not in captured
 
 
 def test_wal_mode_integration(tmp_path, monkeypatch, capsys):
