@@ -32,6 +32,7 @@ WRITE_CMDS = {
     "revert",
 }
 
+
 def maybe_warn():
     """Emit warning and prompt for confirmation if running a write-capable Git command.
 
@@ -67,9 +68,10 @@ def maybe_warn():
                 sys.exit(1)
     except (OSError, IOError):
         # No TTY available (CI, pipes, etc.) - abort unless env var is set
-        log("No TTY available for confirmation. Set GIT_SQLITE_ALLOW_WRITE=1 to proceed.")
+        log(
+            "No TTY available for confirmation. Set GIT_SQLITE_ALLOW_WRITE=1 to proceed."
+        )
         sys.exit(1)
-
 
 
 TOOL = "[git-sqlite-clean]"
@@ -338,18 +340,23 @@ def main():
         log(f"sqlite3 library version: {sqlite3.version}")
         log(f"sqlite3 runtime version: {sqlite3.sqlite_version}")
         try:
-            cli_ver = subprocess.check_output(["sqlite3", "--version"], text=True).strip()
+            cli_ver = subprocess.check_output(
+                ["sqlite3", "--version"], text=True
+            ).strip()
             log(f"sqlite3 binary version: {cli_ver}")
         except FileNotFoundError:
-            log("sqlite3 binary version: NOT FOUND (needed for locked databases; 'backup' will fail)")
+            log(
+                "sqlite3 binary version: NOT FOUND (needed for locked databases; 'backup' will fail)"
+            )
         except Exception as e:
             log(f"sqlite3 binary version: error getting version ({e})")
-
 
     # Safety warning with 5s debounce (User Request)
     sentinel = os.path.join(tempfile.gettempdir(), "git_sqlite_warn_lock")
     try:
-        if not os.path.exists(sentinel) or (time.time() - os.path.getmtime(sentinel) > 5):
+        if not os.path.exists(sentinel) or (
+            time.time() - os.path.getmtime(sentinel) > 5
+        ):
             log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
             log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
             with open(sentinel, "w") as f:
@@ -392,7 +399,9 @@ def main():
                 log(f"backup failed: {err}")
 
         # Fallback to Index/HEAD if backup/dump fails
-        log(f"warning: falling back to git history for {args.db_file} (database locked/modified)")
+        log(
+            f"warning: falling back to git history for {args.db_file} (database locked/modified)"
+        )
         for ref in [f":0:{args.db_file}", f"HEAD:{args.db_file}"]:
             res_git = subprocess.run(
                 ["git", "show", ref], capture_output=True, check=False

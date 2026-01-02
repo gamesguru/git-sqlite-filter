@@ -64,6 +64,7 @@ format:	##H @General Run black & isort
 	isort src/git_sqlite_filter/
 	black test/*.py
 	isort test/*.py
+	ruff check --fix --quiet --exit-zero src/git_sqlite_filter test
 
 .PHONY: lint
 lint: ##H @General Run ruff lint

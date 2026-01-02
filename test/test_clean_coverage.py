@@ -1,21 +1,13 @@
 import io
-import os
-import sys
-import subprocess
 import sqlite3
-import tempfile
-import time
+import sys
 from unittest import mock
 from unittest.mock import mock_open
 
-import pytest
-
 from git_sqlite_filter.clean import (
-    format_sql_value,
-    get_table_metadata,
     collation_func,
+    format_sql_value,
     maybe_warn,
-    log,
 )
 
 
