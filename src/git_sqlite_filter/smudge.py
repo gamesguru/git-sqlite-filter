@@ -75,7 +75,8 @@ def collation_func(s1, s2):
 
 
 def filter_sql_stream(stream, debug=False):
-    """Filter out internal schema creation and handle transactions."""
+    """Filter out problematic statements but preserve as much as possible."""
+    yield "PRAGMA foreign_keys=OFF;\n"
     yield "BEGIN TRANSACTION;\n"
 
     buffer = []
@@ -83,48 +84,45 @@ def filter_sql_stream(stream, debug=False):
     for line in stream:
         buffer.append(line)
 
-        # Statement boundary detection
         if line.strip().endswith(";"):
             statement = "".join(buffer)
             buffer = []
 
             statement_upper = statement.upper().strip()
 
-            # Skip internal tables and sequence
-            if (
-                "CREATE TABLE" in statement_upper
-                and "SQLITE_SEQUENCE" in statement_upper
-            ):
-                if debug:
-                    log("skipping sqlite_sequence creation")
+            # Skip problematic pragmas that shouldn't be in a dump
+            if "PRAGMA WRITABLE_SCHEMA" in statement_upper:
                 continue
 
+            # Skip FTS5 internal triggers (they auto-recreate on FTS table creation)
+            # FTS5 triggers typically: tablename_insert, tablename_delete, tablename_update
+            if "CREATE TRIGGER" in statement_upper:
+                trigger_name = statement_upper.split()[2]  # CREATE TRIGGER name
+                # Heuristic: FTS triggers reference the content/docsize/config tables
+                if any(x in statement_upper for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")):
+                    if debug:
+                        log(f"skipping FTS5 internal trigger: {trigger_name}")
+                    continue
+
+            # Skip ROLLBACK - if this appears, the dump is corrupted, just skip it
+            if "ROLLBACK" in statement_upper and "ROLLBACK TO" not in statement_upper:
+                log("warning: skipping ROLLBACK in dump (corrupted input?)")
+                continue
+
+            # Skip sqlite_sequence, sqlite_master inserts
             if ("INSERT INTO" in statement_upper) and (
                 "SQLITE_MASTER" in statement_upper or "SQLITE_STAT" in statement_upper
             ):
-                if debug:
-                    log(f"skipping internal metadata insert: {statement[:30]}...")
                 continue
 
-            # Prevent nested transactions
-            if any(
-                statement_upper.startswith(p)
-                for p in ["BEGIN TRANSACTION", "COMMIT", "ROLLBACK"]
-            ):
-                if debug:
-                    log(f"skipping transaction command: {statement_upper}")
+            # Skip nested transactions
+            if statement_upper.startswith(("BEGIN TRANSACTION", "COMMIT")):
                 continue
 
-            if debug:
-                log(f"yielding statement: {statement.strip()[:60]}...")
             yield statement
 
     if buffer:
-        rem = "".join(buffer)
-        if rem.strip():
-            if debug:
-                log(f"yielding trailing buffer: {rem.strip()[:60]}...")
-            yield rem
+        yield "".join(buffer)
 
     yield "COMMIT;\n"
 
