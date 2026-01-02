@@ -43,75 +43,153 @@ def collation_func(s1, s2):
 
 
 def stream_dump(db_path, args):
-    """Stream logical SQL dump using Python's iterdump for collation support."""
+    """Stream logical SQL dump with noise reduction (sorting) and FTS5 support."""
     conn = None
     try:
         conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        # Register dummy collations for stable dumps
+        registered_collations = set()
+
+        def get_conn():
+            c = sqlite3.connect(db_path)
+            c.row_factory = sqlite3.Row
+            for col in registered_collations:
+                c.create_collation(col, collation_func)
+            return c
+
+        conn = get_conn()
 
         # 1. PRAGMA user_version
         user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if not args.data_only:
+            sys.stdout.write(f"PRAGMA user_version = {user_version};\n")
+            sys.stdout.write("PRAGMA foreign_keys=OFF;\n")
 
-        # 2. Setup Collation Handling
-        # Since iterdump() might fail halfway if it hits a custom collation,
-        # and we are streaming to stdout, we have a problem.
-        # Strategy: Pre-scan sqlite_master for collation names?
-        # Faster: Use a very high retry count and hope we catch them all.
-        registered_collations = set()
-        max_attempts = 100
+        # 2. Get all tables and views, excluding internal shadow tables
+        # We manually build the dump to ensure stable sorting (Noise Reduction)
+        objects = conn.execute(
+            """
+            SELECT name, type, sql FROM sqlite_master 
+            WHERE name NOT LIKE 'sqlite_%'
+            AND type IN ('table', 'view')
+            ORDER BY name ASC
+        """
+        ).fetchall()
 
-        for attempt in range(max_attempts):
-            output_buffer = []  # Buffer ONLY if we expect errors, but that's slow.
-            # Realistically, we'll just try to dump. If it fails, we register and try again.
-            # To avoid the "partial output" problem, we use a temporary file for the dump
-            # and then stream it to stdout only on success.
+        if not args.data_only:
+            sys.stdout.write("BEGIN TRANSACTION;\n")
+            for obj in objects:
+                # Filter out auto-generated FTS5 shadow tables from schema dump
+                if re.search(r"_(content|data|idx|docsize|config)$", obj["name"]):
+                    continue
+                if obj["sql"]:
+                    sys.stdout.write(f"{obj['sql']};\n")
 
-            with tempfile.NamedTemporaryFile(
-                mode="w+", prefix="sqlite_clean_sql_", suffix=".sql", delete=True
-            ) as sql_tmp:
-                try:
-                    if not args.data_only:
-                        sql_tmp.write(f"PRAGMA user_version = {user_version};\n")
-                        sql_tmp.write("PRAGMA foreign_keys=OFF;\n")
+        # 3. Dump Data with Noise Reduction (Sorting)
+        if not args.schema_only:
+            for obj in objects:
+                if obj["type"] != "table":
+                    continue
 
-                    # iterdump() handles the full SCHEMA + DATA dump
-                    for line in conn.iterdump():
-                        # Filtering
-                        if args.data_only and not line.startswith("INSERT INTO"):
-                            continue
-                        if args.schema_only and line.startswith("INSERT INTO"):
-                            continue
+                table_name = obj["name"]
+                # Skip FTS5 shadow tables and other internal tables for data dump
+                if re.search(r"_(content|data|idx|docsize|config)$", table_name):
+                    continue
 
-                        # Normalization
-                        if args.float_precision is not None:
-                            line = normalize_floats(line, args.float_precision)
+                # Check if it's a virtual table
+                is_virtual = obj["sql"] and "VIRTUAL" in obj["sql"].upper()
 
-                        sql_tmp.write(line + "\n")
+                # Discover Columns and Primary Key for stable sorting
+                # Using table_xinfo to detect generated/hidden columns (hidden column is at index 6)
+                # hidden values: 0=normal, 1=hidden, 2=virtual generated, 3=stored generated
+                xinfo = conn.execute(f"PRAGMA table_xinfo('{table_name}')").fetchall()
+                insertable_cols = []
+                pk_cols = []
+                for col in xinfo:
+                    # col: [id, name, type, notnull, dflt_value, pk, hidden]
+                    if (
+                        col[6] == 0
+                    ):  # Only non-hidden/non-generated columns are insertable
+                        insertable_cols.append(col[1])
+                    if col[5] > 0:  # Primary Key
+                        pk_cols.append(col[1])
 
-                    # If we reached here, success! Flush and stream to stdout.
-                    sql_tmp.seek(0)
-                    for line in sql_tmp:
-                        sys.stdout.write(line)
-                    return True
+                order_by = (
+                    f"ORDER BY {', '.join(f'\"{pk}\"' for pk in pk_cols)}"
+                    if pk_cols
+                    else ""
+                )
 
-                except sqlite3.OperationalError as e:
-                    msg = str(e)
-                    match = re.search(r"no such collation sequence: (\S+)", msg)
-                    if match:
-                        col_name = match.group(1).strip("'\"")
-                        if col_name not in registered_collations:
-                            log(f"registering missing collation: {col_name}")
-                            conn.close()
-                            conn = sqlite3.connect(db_path)
-                            registered_collations.add(col_name)
-                            for c in registered_collations:
-                                conn.create_collation(c, collation_func)
-                            continue  # Retry the whole iterdump
+                while True:
+                    try:
+                        # We only select insertable columns to avoid issues with generated columns
+                        col_list = ", ".join(f'"{n}"' for n in insertable_cols)
+                        cursor = conn.execute(
+                            f'SELECT {col_list} FROM "{table_name}" {order_by}'
+                        )
 
-                    log(f"error during iterdump on attempt {attempt}: {e}")
-                    return False
+                        for row in cursor:
+                            vals = []
+                            for i, val in enumerate(row):
+                                if val is None:
+                                    vals.append("NULL")
+                                elif isinstance(val, (int, float)):
+                                    if args.float_precision is not None and isinstance(
+                                        val, float
+                                    ):
+                                        v_str = (
+                                            format(val, f".{args.float_precision}f")
+                                            .rstrip("0")
+                                            .rstrip(".")
+                                        )
+                                        vals.append(v_str or "0.0")
+                                    else:
+                                        vals.append(str(val))
+                                elif isinstance(val, bytes):
+                                    vals.append(f"X'{val.hex().upper()}'")
+                                else:
+                                    # String escaping
+                                    escaped = str(val).replace("'", "''")
+                                    vals.append(f"'{escaped}'")
+
+                            sys.stdout.write(
+                                f"INSERT INTO \"{table_name}\" ({col_list}) VALUES ({', '.join(vals)});\n"
+                            )
+                        break  # Success
+                    except sqlite3.OperationalError as e:
+                        msg = str(e)
+                        match = re.search(r"no such collation sequence: (\S+)", msg)
+                        if match:
+                            col_name = match.group(1).strip("'\"")
+                            if col_name not in registered_collations:
+                                log(f"registering missing collation: {col_name}")
+                                registered_collations.add(col_name)
+                                conn.close()
+                                conn = get_conn()
+                                continue
+                        raise
+
+        if not args.data_only:
+            # Re-add triggers and indexes at the end
+            # Excluding internal indexes auto-created by SQLite
+            extras = conn.execute(
+                """
+                SELECT sql FROM sqlite_master 
+                WHERE type IN ('index', 'trigger') 
+                AND sql IS NOT NULL
+                AND name NOT LIKE 'sqlite_autoindex_%'
+            """
+            ).fetchall()
+            for extra in extras:
+                sys.stdout.write(f"{extra[0]};\n")
+            sys.stdout.write("COMMIT;\n")
+
+        return True
 
     except Exception as e:
-        log(f"error connecting or dumping: {e}")
+        log(f"error during noise-reduction dump: {e}")
         return False
     finally:
         if conn:
