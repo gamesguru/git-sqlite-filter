@@ -178,7 +178,8 @@ class DatabaseDumper:
         if not pks:
             pks = ["rowid"]
 
-        order_by = f"ORDER BY {', '.join(f'\"{pk}\"' for pk in pks)}"
+        pk_list = ", ".join(f'"{pk}"' for pk in pks)
+        order_by = f"ORDER BY {pk_list}"
         col_list = ", ".join(f'"{c}"' for c in cols)
 
         if self.debug:

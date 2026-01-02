@@ -52,6 +52,10 @@ format:	##H Run black & isort
 	black test/*.py
 	isort test/*.py
 
+.PHONY: lint
+lint: ##H Run ruff lint
+	ruff check src/git_sqlite_filter test
+
 .PHONY: test
 test:	##H Run the test suite
 	./test/run_tests.sh
