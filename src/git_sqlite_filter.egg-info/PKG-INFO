@@ -12,24 +12,47 @@ Classifier: Topic :: Database
 Requires-Python: >=3.7
 Description-Content-Type: text/x-rst
 
-*******************
- git-sqlite-filter
-*******************
+git-sqlite-filter
+=================
 
-Supports sqlite v3.38.0+ (for WAL mode).
+A Git clean/smudge filter for SQLite databases that ensures logical, deterministic SQL dumps.
 
+Features
+--------
+*   **Noise Reduction**: Stable row sorting by Primary Key prevents "phantom diffs".
+*   **FTS5 Support**: Correctly filters virtual table shadow tables for transparent restoration.
+*   **Generated Columns**: Excludes virtual/stored columns from INSERT statements.
+*   **Lock Resilience**: Uses atomic backups to handle busy databases during commits.
 
-Configuration (User-level vs. Repository-level)
-###############################################
+Installation
+------------
+Install directly via pip:
 
-Add to your ``~/.gitconfig`` file:
+.. code-block:: bash
 
-.. code-block:: config
+    pip install git-sqlite-filter
 
-  [filter "sqlite"]
-      clean = git-sqlite-clean %f
-      smudge = "sqlite3 -init /dev/null -batch %f .read"
-      required = true
- [diff "sqlite"]
-      # Allows 'git diff' to show readable SQL changes for binary files
-      textconv = "sqlite3 \"$1\" .dump"
+Usage
+-----
+Configure the filter in your ``.gitattributes``:
+
+.. code-block:: text
+
+    *.sqlite filter=sqlite
+
+And in your ``.gitconfig``:
+
+.. code-block:: ini
+
+    [filter "sqlite"]
+        clean = git-sqlite-clean %f
+        smudge = git-sqlite-smudge
+        required = true
+
+Development
+-----------
+Run the test suite:
+
+.. code-block:: bash
+
+    ./test/run_tests.sh
