@@ -111,6 +111,45 @@ release: ##H @Release Create a GitHub release (requires gh)
 	@VERSION=$$(grep -m 1 "version =" pyproject.toml | cut -d '"' -f 2); \
 	gh release create "v$$VERSION" dist/* --generate-notes --title "v$$VERSION"
 
-.PHONY: publish
-publish: ##H @Release Upload to PyPI (requires twine)
-	twine upload dist/*
+
+# Version bumping helpers
+.PHONY: bump-patch
+bump-patch:
+	@perl -pi -e 's/version = "(\d+)\.(\d+)\.(\d+)"/ "version = \"$$1.$$2." . ($$3+1) . "\""/e' pyproject.toml
+	@echo "Bumped patch version"
+
+.PHONY: bump-minor
+bump-minor:
+	@perl -pi -e 's/version = "(\d+)\.(\d+)\.(\d+)"/ "version = \"$$1." . ($$2+1) . ".0\""/e' pyproject.toml
+	@echo "Bumped minor version"
+
+.PHONY: bump-major
+bump-major:
+	@perl -pi -e 's/version = "(\d+)\.(\d+)\.(\d+)"/ "version = \"" . ($$1+1) . ".0.0\""/e' pyproject.toml
+	@echo "Bumped major version"
+
+# Combined release flow
+.PHONY: deploy
+deploy: build release publish ##H @Release Build and deploy current version to GitHub and PyPI
+
+.PHONY: release-patch
+release-patch: bump-patch ##H @Release Bump patch version, commit, tag, and deploy
+	@VERSION=$$(grep -m 1 "version =" pyproject.toml | cut -d '"' -f 2); \
+	git commit -a -m "Release v$$VERSION"; \
+	echo "Deploying v$$VERSION..."; \
+	$(MAKE) deploy
+
+.PHONY: release-minor
+release-minor: bump-minor ##H @Release Bump minor version, commit, tag, and deploy
+	@VERSION=$$(grep -m 1 "version =" pyproject.toml | cut -d '"' -f 2); \
+	git commit -a -m "Release v$$VERSION"; \
+	echo "Deploying v$$VERSION..."; \
+	$(MAKE) deploy
+
+.PHONY: release-major
+release-major: bump-major ##H @Release Bump major version, commit, tag, and deploy
+	@VERSION=$$(grep -m 1 "version =" pyproject.toml | cut -d '"' -f 2); \
+	git commit -a -m "Release v$$VERSION"; \
+	echo "Deploying v$$VERSION..."; \
+	$(MAKE) deploy
+
