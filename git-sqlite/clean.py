@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import sqlite3
 
 # Handle broken pipes gracefully
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -34,55 +35,85 @@ def normalize_floats(line, precision):
     return re.sub(r"-?\d+\.\d+(?:[eE][-+]?\d+)?", round_match, line)
 
 
+def collation_func(s1, s2):
+    # Dummy collation: sort lexicographically
+    if s1 == s2:
+        return 0
+    return 1 if s1 > s2 else -1
+
+
 def stream_dump(db_path, args):
-    """Stream logical SQL dump with filtering and normalization."""
-    # 1. PRAGMA user_version (Small, we can just get it)
+    """Stream logical SQL dump using Python's iterdump for collation support."""
+    conn = None
     try:
-        res_ver = subprocess.run(
-            ["sqlite3", "-init", "/dev/null", "-batch", db_path, "PRAGMA user_version;"],
-            capture_output=True, text=True, check=True
-        )
-        user_version = res_ver.stdout.strip()
-    except subprocess.CalledProcessError:
-        user_version = "0"
-
-    # 2. Start .dump process
-    cmd = ["sqlite3", "-init", "/dev/null", "-batch", db_path, ".dump"]
-    
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
-    )
-
-    try:
-        header_written = False
-        for line in proc.stdout:
-            # Detect SQLite internal error comments and abort immediately
-            if "**** ERROR:" in line:
-                proc.kill()
-                return False
-
-            if not header_written and not args.data_only:
-                sys.stdout.write(f"PRAGMA user_version = {user_version};\n")
-                header_written = True
-
-            # Filtering
-            if args.data_only and not line.startswith("INSERT INTO"):
-                continue
-            if args.schema_only and line.startswith("INSERT INTO"):
-                continue
+        conn = sqlite3.connect(db_path)
+        
+        # 1. PRAGMA user_version
+        user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        
+        # 2. Setup Collation Handling
+        # Since iterdump() might fail halfway if it hits a custom collation,
+        # and we are streaming to stdout, we have a problem.
+        # Strategy: Pre-scan sqlite_master for collation names?
+        # Faster: Use a very high retry count and hope we catch them all.
+        registered_collations = set()
+        max_attempts = 100
+        
+        for attempt in range(max_attempts):
+            output_buffer = [] # Buffer ONLY if we expect errors, but that's slow.
+            # Realistically, we'll just try to dump. If it fails, we register and try again.
+            # To avoid the "partial output" problem, we use a temporary file for the dump 
+            # and then stream it to stdout only on success.
             
-            # Normalization
-            if args.float_precision is not None:
-                line = normalize_floats(line, args.float_precision)
-            
-            sys.stdout.write(line)
+            with tempfile.NamedTemporaryFile(mode="w+", prefix="sqlite_clean_sql_", suffix=".sql", delete=True) as sql_tmp:
+                try:
+                    if not args.data_only:
+                        sql_tmp.write(f"PRAGMA user_version = {user_version};\n")
+                        sql_tmp.write("PRAGMA foreign_keys=OFF;\n")
 
-        proc.wait()
-        return proc.returncode == 0
+                    # iterdump() handles the full SCHEMA + DATA dump
+                    for line in conn.iterdump():
+                        # Filtering
+                        if args.data_only and not line.startswith("INSERT INTO"):
+                            continue
+                        if args.schema_only and line.startswith("INSERT INTO"):
+                            continue
+                        
+                        # Normalization
+                        if args.float_precision is not None:
+                            line = normalize_floats(line, args.float_precision)
+                        
+                        sql_tmp.write(line + "\n")
+                    
+                    # If we reached here, success! Flush and stream to stdout.
+                    sql_tmp.seek(0)
+                    for line in sql_tmp:
+                        sys.stdout.write(line)
+                    return True
+                    
+                except sqlite3.OperationalError as e:
+                    msg = str(e)
+                    match = re.search(r"no such collation sequence: (\S+)", msg)
+                    if match:
+                        col_name = match.group(1).strip("'\"")
+                        if col_name not in registered_collations:
+                            log(f"registering missing collation: {col_name}")
+                            conn.close()
+                            conn = sqlite3.connect(db_path)
+                            registered_collations.add(col_name)
+                            for c in registered_collations:
+                                conn.create_collation(c, collation_func)
+                            continue # Retry the whole iterdump
+                    
+                    log(f"error during iterdump on attempt {attempt}: {e}")
+                    return False
+
     except Exception as e:
-        log(f"error during streaming: {e}")
-        proc.kill()
+        log(f"error connecting or dumping: {e}")
         return False
+    finally:
+        if conn:
+            conn.close()
 
 
 def main():
@@ -95,15 +126,14 @@ def main():
     args = parser.parse_args()
     db_file = args.db_file
 
-    # --- 1. Robust Path: Atomic Backup + Streaming ---
-    # We backup to a temp file first to ensure we have a consistent, unlocked snapshot.
-    # This prevents "database is locked" errors from being streamed to stdout.
+    # --- 1. Robust Path: Atomic Backup + iterdump ---
     with tempfile.NamedTemporaryFile(
         prefix="sqlite_bak_", suffix=".sqlite", delete=False
     ) as tmp:
         tmp_path = tmp.name
 
     try:
+        # Use CLI for backup as it's the most robust way to handle locks/WAL
         res_bak = subprocess.run(
             ["sqlite3", "-init", "/dev/null", "-batch", db_file, f".backup '{tmp_path}'"],
             capture_output=True, check=False
@@ -117,8 +147,6 @@ def main():
             os.remove(tmp_path)
 
     # --- 2. Fail Fallback: True Ignore (Index/HEAD) ---
-    # If backup failed, the DB is likely locked or corrupted. 
-    # Directly dumping from the original file is too risky (leaks error strings).
     log(f"warning: ignoring {db_file}, potentially locked or inaccessible")
 
     # Try Index (:0:)
@@ -126,9 +154,6 @@ def main():
         ["git", "show", f":0:{db_file}"], capture_output=True, check=False
     )
     if res_index.returncode == 0:
-        # Note: Fallback doesn't support streaming/normalization easily 
-        # as it's a binary blob in the index/head usually, but here 
-        # we just pass it through.
         sys.stdout.buffer.write(res_index.stdout)
         return
 
@@ -140,7 +165,7 @@ def main():
         sys.stdout.buffer.write(res_head.stdout)
         return
 
-    # --- 4. Total Fail: Fallback to Binary ---
+    # --- 3. Total Fail: Fallback to Binary ---
     log(f"error: {db_file} is new and locked; falling back to binary")
     with open(db_file, "rb") as f:
         sys.stdout.buffer.write(f.read())
