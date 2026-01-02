@@ -2,13 +2,13 @@ PRAGMA user_version = 0;
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
 CREATE TABLE logs (msg TEXT);
-INSERT INTO "logs" VALUES('New user 1');
 CREATE TABLE users (
             id INTEGER PRIMARY KEY,
             age INTEGER CHECK(age >= 18),
             status TEXT DEFAULT 'active'
         );
-INSERT INTO "users" VALUES(1,25,'active');
+INSERT INTO "logs" ("msg") VALUES ('New user 1');
+INSERT INTO "users" ("id", "age", "status") VALUES (1, 25, 'active');
 CREATE TRIGGER user_log AFTER INSERT ON users BEGIN
             INSERT INTO logs VALUES ('New user ' || NEW.id);
         END;

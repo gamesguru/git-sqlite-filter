@@ -6,5 +6,5 @@ CREATE TABLE places (
             url TEXT COLLATE UUID,
             title TEXT COLLATE MANIFEST_INDEX
         );
-INSERT INTO "places" VALUES(1,'https://google.com','Search');
+INSERT INTO "places" ("id", "url", "title") VALUES (1, 'https://google.com', 'Search');
 COMMIT;
