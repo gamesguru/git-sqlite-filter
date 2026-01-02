@@ -304,10 +304,12 @@ def main():
             if dumper.dump():
                 return
         else:
-            log(f"backup failed: {res.stderr.decode().strip()}")
+            err = res.stderr.decode().strip()
+            if "database is locked" not in err:
+                log(f"backup failed: {err}")
 
         # Fallback to Index/HEAD if backup/dump fails
-        log(f"warning: falling back to git history for {args.db_file}")
+        log(f"warning: falling back to git history for {args.db_file} (database locked/modified)")
         for ref in [f":0:{args.db_file}", f"HEAD:{args.db_file}"]:
             res_git = subprocess.run(
                 ["git", "show", ref], capture_output=True, check=False
