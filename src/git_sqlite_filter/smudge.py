@@ -170,7 +170,11 @@ def main():
     parser.add_argument(
         "--schema", help="Path to a base schema file to apply before data"
     )
-    parser.add_argument("--debug", action="store_true", help="Log debug info to stderr (also triggered by GIT_TRACE=1)")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Log debug info to stderr (also triggered by GIT_TRACE=1)",
+    )
     args = parser.parse_args()
 
     debug = args.debug or os.environ.get("GIT_TRACE") in ("1", "true", "2")
