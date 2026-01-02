@@ -2,6 +2,11 @@
  git-sqlite-filter
 *******************
 
+
+
+Configuration (User-level vs. Repository-level)
+###############################################
+
 Add to your ``~/.gitconfig`` file:
 
 .. code-block:: config
