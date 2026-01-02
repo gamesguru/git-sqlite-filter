@@ -1,6 +1,10 @@
 git-sqlite-filter
 =================
 
+.. warning::
+    **YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!**
+    To keep your data safe, only use Git operations from a user with **READ-ONLY ACCESS** to the live database file.
+
 A Git clean/smudge filter for SQLite databases that ensures logical, deterministic SQL dumps.
 
 Features

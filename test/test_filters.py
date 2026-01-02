@@ -111,3 +111,47 @@ def test_binary_fallback():
             mock_stdout.buffer = output_bytes
             main()
             assert content.encode() in output_bytes.getvalue()
+
+
+def test_lock_performance_timeout():
+    """Ensure tool fails fast (< 0.1s) when DB is locked."""
+    import time
+    import threading
+    import sqlite3
+    
+    db_path = os.path.join(TMP_DIR, "locked.db")
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    # Create a dummy DB
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE t (id INTEGER)")
+    conn.execute("INSERT INTO t VALUES (1)")
+    conn.commit()
+    conn.close()
+
+    # Hold an exclusive lock in a separate thread
+    ev = threading.Event()
+    def hold_lock():
+        c = sqlite3.connect(db_path)
+        c.execute("BEGIN EXCLUSIVE")
+        ev.set()
+        time.sleep(2) # Hold for 2 seconds
+        c.close()
+
+    t = threading.Thread(target=hold_lock)
+    t.start()
+    ev.wait() # Wait for lock to be acquired
+
+    start = time.time()
+    # Run clean.py against locked DB
+    cmd = [sys.executable, "src/git_sqlite_filter/clean.py", db_path]
+    # We expect it to write to stdout (fallback)
+    subprocess.run(cmd, capture_output=True)
+    end = time.time()
+    
+    t.join() 
+    
+    duration = end - start
+    # Python startup time dominates here (can be ~0.1-0.2s). 
+    # Fail-fast means we didn't wait 5s (default) or longer. 0.5s is safe proof.
+    assert duration < 0.5, f"Lock fallback took too long: {duration:.4f}s"

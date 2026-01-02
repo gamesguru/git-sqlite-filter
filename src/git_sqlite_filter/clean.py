@@ -7,9 +7,13 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 
 # Handle broken pipes (e.g. | head) without stack trace
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+# WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!
+#  TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!
 
 TOOL = "[git-sqlite-clean]"
 
@@ -276,6 +280,27 @@ def main():
         log(f"starting semantic clean for {args.db_file}")
         log(f"sqlite3 library version: {sqlite3.version}")
         log(f"sqlite3 runtime version: {sqlite3.sqlite_version}")
+    
+    
+    # Safety warning for every invocation to prevent data loss (User Request)
+    # Debounce detection: Only print once per 5 seconds to avoid spamming on 'git status'
+    sentinel_path = os.path.join(tempfile.gettempdir(), "git_sqlite_filter_warn_sentinel")
+    should_warn = True
+    try:
+        if os.path.exists(sentinel_path):
+            if time.time() - os.path.getmtime(sentinel_path) < 5.0:
+                should_warn = False
+    except OSError:
+        pass # Ignore permission errors, safe default is to warn
+
+    if should_warn:
+        log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
+        log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
+        try:
+            with open(sentinel_path, "w") as f:
+                f.write(str(time.time()))
+        except OSError:
+            pass
 
     # Use a temporary backup for consistency and lock avoidance
     with tempfile.NamedTemporaryFile(
