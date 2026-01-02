@@ -155,3 +155,24 @@ def test_lock_performance_timeout():
     # Python startup time dominates here (can be ~0.1-0.2s). 
     # Fail-fast means we didn't wait 5s (default) or longer. 0.5s is safe proof.
     assert duration < 0.5, f"Lock fallback took too long: {duration:.4f}s"
+
+
+def test_smudge_cli():
+    """Directly test smudge.main() to ensure CLI coverage."""
+    from git_sqlite_filter.smudge import main as smudge_main
+    from unittest.mock import patch
+
+    sql_input = "BEGIN TRANSACTION;\nCREATE TABLE t(a);\nINSERT INTO t VALUES(1);\nCOMMIT;\n"
+    
+    # Mock sys.argv
+    with patch.object(sys, "argv", ["git-sqlite-smudge", "ignored_filename"]):
+        # Mock stdin
+        with patch.object(sys, "stdin", io.StringIO(sql_input)):
+            # Mock stdout.buffer
+            output_bytes = io.BytesIO()
+            with patch.object(sys, "stdout") as mock_stdout:
+                mock_stdout.buffer = output_bytes
+                smudge_main()
+                
+                # Verify we got some binary output (SQLite header)
+                assert output_bytes.getvalue().startswith(b"SQLite format 3")
