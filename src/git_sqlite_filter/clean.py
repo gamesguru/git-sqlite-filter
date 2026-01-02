@@ -12,8 +12,65 @@ import time
 # Handle broken pipes (e.g. | head) without stack trace
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-# WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!
-#  TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!
+# Safety warning messages (shared with smudge)
+WARNING_MSG = [
+    "WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!",
+    "TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!",
+]
+
+# Set of Git sub‑commands that can write to the repository
+WRITE_CMDS = {
+    "checkout",
+    "pull",
+    "reset",
+    "merge",
+    "rebase",
+    "push",
+    "commit",
+    "apply",
+    "cherry-pick",
+    "revert",
+}
+
+def maybe_warn():
+    """Emit warning and prompt for confirmation if running a write-capable Git command.
+    
+    Uses /dev/tty to read user input (bypasses stdin pipe).
+    Set GIT_SQLITE_ALLOW_WRITE=1 to skip the prompt (for CI/automation).
+    """
+    cmd = os.path.basename(sys.argv[0])
+    if cmd.startswith("git-"):
+        subcmd = cmd[4:]
+    elif len(sys.argv) > 1:
+        subcmd = os.path.basename(sys.argv[1])
+    else:
+        subcmd = ""
+    
+    if subcmd not in WRITE_CMDS:
+        return
+    
+    # Allow bypass via env var for CI/automation
+    if os.environ.get("GIT_SQLITE_ALLOW_WRITE") == "1":
+        return
+    
+    for line in WARNING_MSG:
+        log(line)
+    
+    # Try to prompt user via /dev/tty (bypasses stdin pipe)
+    try:
+        with open("/dev/tty", "r") as tty:
+            sys.stderr.write(f"{TOOL} Continue with write operation? [y/N] ")
+            sys.stderr.flush()
+            response = tty.readline().strip().lower()
+            if response != "y":
+                log("Aborted by user.")
+                sys.exit(1)
+    except (OSError, IOError):
+        # No TTY available (CI, pipes, etc.) - abort unless env var is set
+        log("No TTY available for confirmation. Set GIT_SQLITE_ALLOW_WRITE=1 to proceed.")
+        sys.exit(1)
+
+
 
 TOOL = "[git-sqlite-clean]"
 
@@ -299,6 +356,9 @@ def main():
                 f.write(str(time.time()))
     except OSError:
         pass  # Ignore permissions/IO errors
+
+    # Emit additional warning for write-capable Git commands
+    maybe_warn()
 
     # Use a temporary backup for consistency and lock avoidance
     with tempfile.NamedTemporaryFile(

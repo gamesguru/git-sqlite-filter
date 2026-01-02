@@ -135,7 +135,7 @@ def test_lock_performance_timeout():
         c = sqlite3.connect(db_path)
         c.execute("BEGIN EXCLUSIVE")
         ev.set()
-        time.sleep(2) # Hold for 2 seconds
+        time.sleep(0.3) # Hold briefly - just enough to test fail-fast
         c.close()
 
     t = threading.Thread(target=hold_lock)

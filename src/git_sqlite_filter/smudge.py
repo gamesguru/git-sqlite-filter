@@ -12,9 +12,51 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 TOOL = "[git-sqlite-smudge]"
 
+# Safety warning to match clean.py
+WARNING_MSG = [
+    "WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!",
+    "TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!"
+]
+
+# Set of Git sub-commands that can write to the repository
+WRITE_CMDS = {
+    "checkout", "pull", "reset", "merge", "rebase",
+    "push", "commit", "apply", "cherry-pick", "revert",
+}
+
 
 def log(msg):
     sys.stderr.write(f"{TOOL} {msg}\n")
+
+
+def maybe_warn():
+    """Smudge is always a write operation (checkout, pull, merge, etc.).
+    
+    Prompts for confirmation unless GIT_SQLITE_ALLOW_WRITE=1 is set.
+    Uses /dev/tty to bypass stdin pipe.
+    """
+    # Allow bypass via env var for CI/automation
+    if os.environ.get("GIT_SQLITE_ALLOW_WRITE") == "1":
+        return
+    
+    for line in WARNING_MSG:
+        log(line)
+    
+    # Try to prompt user via /dev/tty (bypasses stdin pipe)
+    try:
+        with open("/dev/tty", "r") as tty:
+            sys.stderr.write(f"{TOOL} Continue with write operation? [y/N] ")
+            sys.stderr.flush()
+            response = tty.readline().strip().lower()
+            if response != "y":
+                log("Aborted by user.")
+                sys.exit(1)
+    except (OSError, IOError):
+        # No TTY available (CI, pipes, etc.) - abort unless env var is set
+        log("No TTY available for confirmation. Set GIT_SQLITE_ALLOW_WRITE=1 to proceed.")
+        sys.exit(1)
+
+
 
 
 def collation_func(s1, s2):
