@@ -1,3 +1,4 @@
+LICENSE
 README.rst
 pyproject.toml
 src/git_sqlite_filter/__init__.py

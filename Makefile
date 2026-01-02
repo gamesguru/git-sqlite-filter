@@ -10,23 +10,30 @@ _help:
 	@awk 'BEGIN {FS = ":.*?##H "}; \
 		/##H/ && !/@awk.*?##H/ { \
 			target=$$1; doc=$$2; \
+			category="General"; \
+			if (doc ~ /^@/) { \
+				category=substr(doc, 2, index(doc, " ")-2); \
+				doc=substr(doc, index(doc, " ")+1); \
+			} \
 			if (length(target) > max) max = length(target); \
-			targets[NR] = target; docs[NR] = doc; list[NR] = 1; \
+			targets[NR] = target; docs[NR] = doc; cats[NR] = category; \
 		} \
 		END { \
-			print "\n\033[1;36mCore Commands:\033[0m"; \
+			last_cat = ""; \
 			for (i = 1; i <= NR; i++) { \
-				if (list[i]) printf "  \033[1;34m%-*s\033[0m  %s\n", max, targets[i], docs[i]; \
+				if (cats[i] != "") { \
+					if (cats[i] != last_cat) { \
+						printf "\n\033[1;36m%s Commands:\033[0m\n", cats[i]; \
+						last_cat = cats[i]; \
+					} \
+					printf "  \033[1;34m%-*s\033[0m  %s\n", max, targets[i], docs[i]; \
+				} \
 			} \
-			print "\n\033[1;36mPackaging Commands:\033[0m"; \
-			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "arch", "Build Arch Linux package (requires makepkg)"; \
-			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "deb", "Build Debian package (requires dpkg-buildpackage)"; \
-			printf "  \033[1;34m%-*s\033[0m  %s\n", max, "rpm", "Build RPM package (requires rpmbuild)"; \
 			print ""; \
 		}' $(MAKEFILE_LIST)
 
 .PHONY: vars
-vars:	##H Debug: Print project variables
+vars:	##H @General Debug: Print project variables
 	@$(foreach v,$(sort $(.VARIABLES)), \
 		$(if $(filter file command line override,$(origin $(v))), \
 			$(info $(v) = $($(v))) \
@@ -51,42 +58,64 @@ endef
 
 
 .PHONY: format
-format:	##H Run black & isort
+format:	##H @General Run black & isort
 	black src/git_sqlite_filter/
 	isort src/git_sqlite_filter/
 	black test/*.py
 	isort test/*.py
 
 .PHONY: lint
-lint: ##H Run ruff lint
+lint: ##H @General Run ruff lint
 	ruff check src/git_sqlite_filter test
 
 .PHONY: arch
-arch:	##H Build Arch Linux package
+arch:	##H @Packaging Build Arch Linux package (requires makepkg)
 	cd packaging/arch && makepkg -s
 
 .PHONY: deb
-deb:	##H Build Debian package
+deb:	##H @Packaging Build Debian package (requires dpkg-buildpackage)
 	ln -sf packaging/debian debian
 	dpkg-buildpackage -us -uc -b
 	rm -rf debian
 
 .PHONY: rpm
-rpm:	##H Build RPM package
+rpm:	##H @Packaging Build RPM package (requires rpmbuild)
 	rpmbuild -ba packaging/rpm/git-sqlite-filter.spec
 
 .PHONY: test
-test:	##H Run the test suite
+test:	##H @General Run the test suite
 	./test/run_tests.sh
 
 .PHONY: install
-install: ##H Install the package locally in editable mode
+install: ##H @General Install the package locally in editable mode
 	pip install -e .
 
 .PHONY: build
-build:	##H Build the python package (wheel/sdist)
+build:	##H @General Build the python package (wheel/sdist)
 	pip install -U build && python3 -m build
 
+.PHONY: release
+release: ##H @Release Tag and create a GitHub release (requires gh)
+	@VERSION=$$(grep -m 1 "version =" pyproject.toml | cut -d '"' -f 2); \
+	if git rev-parse "v$$VERSION" >/dev/null 2>&1; then \
+		echo "Version v$$VERSION already tagged."; \
+	else \
+		echo "Tagging v$$VERSION..."; \
+		git tag -a "v$$VERSION" -m "Release v$$VERSION"; \
+		git push origin "v$$VERSION"; \
+	fi; \
+	echo "Creating GitHub release..."; \
+	gh release create "v$$VERSION" dist/* --generate-notes
+
+.PHONY: publish
+publish: ##H @Release Upload to PyPI (requires twine)
+	twine upload dist/*
+
+.PHONY: clean
+clean: ##H @General Remove build artifacts
+	rm -rf dist/ build/ *.egg-info/ src/*.egg-info/ .tmp/ .pytest_cache/ .mypy_cache/ debian/
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+
 .PHONY: dev-deps
-dev-deps: ##H Install development dependencies
-	pip install black isort build wheel
+dev-deps: ##H @General Install development dependencies
+	pip install black isort build wheel ruff twine

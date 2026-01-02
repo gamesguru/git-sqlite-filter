@@ -11,6 +11,8 @@ Classifier: Topic :: Software Development :: Version Control :: Git
 Classifier: Topic :: Database
 Requires-Python: >=3.7
 Description-Content-Type: text/x-rst
+License-File: LICENSE
+Dynamic: license-file
 
 git-sqlite-filter
 =================
