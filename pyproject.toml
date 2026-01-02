@@ -37,6 +37,11 @@ target-version = ['py37']
 profile = "black"
 known_first_party = ["git_sqlite_filter"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py37"
+exclude = [".venv", "venv", "build", "dist"]
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
 
@@ -51,8 +56,3 @@ show_missing = true
 skip_empty = true
 skip_covered = true
 exclude_lines = ["pragma: no cover"]
-
-[tool.ruff]
-line-length = 88
-target-version = "py37"
-exclude = [".venv", "venv", "build", "dist"]
