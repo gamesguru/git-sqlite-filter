@@ -7,7 +7,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Ensure we are in the project root
-if [ ! -d "git-sqlite" ]; then
+if [ ! -d "src/git_sqlite_filter" ]; then
     echo -e "${RED}Error: run_tests.sh must be run from the project root.${NC}"
     exit 1
 fi
@@ -32,13 +32,13 @@ for db_path in "$FIXTURE_DIR"/*.db; do
     echo -n "Test case: $db_name ... "
 
     # Step A: Clean original DB -> SQL Jump A
-    python3 git-sqlite/clean.py "$db_path" > "$TMP_DIR/${db_name}.dump_a.sql" 2> /dev/null
+    python3 src/git_sqlite_filter/clean.py "$db_path" > "$TMP_DIR/${db_name}.dump_a.sql" 2> /dev/null
 
     # Step B: Smudge SQL Jump A -> Rebuilt DB
-    cat "$TMP_DIR/${db_name}.dump_a.sql" | python3 git-sqlite/smudge.py > "$TMP_DIR/${db_name}.rebuilt.db" 2> /dev/null
+    cat "$TMP_DIR/${db_name}.dump_a.sql" | python3 src/git_sqlite_filter/smudge.py > "$TMP_DIR/${db_name}.rebuilt.db" 2> /dev/null
 
     # Step C: Clean Rebuilt DB -> SQL Jump B
-    python3 git-sqlite/clean.py "$TMP_DIR/${db_name}.rebuilt.db" > "$TMP_DIR/${db_name}.dump_b.sql" 2> /dev/null
+    python3 src/git_sqlite_filter/clean.py "$TMP_DIR/${db_name}.rebuilt.db" > "$TMP_DIR/${db_name}.dump_b.sql" 2> /dev/null
 
     # Step D: Compare SQL Dump A and B
     if diff "$TMP_DIR/${db_name}.dump_a.sql" "$TMP_DIR/${db_name}.dump_b.sql" > /dev/null; then

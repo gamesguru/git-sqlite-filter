@@ -1,0 +1,35 @@
+Metadata-Version: 2.4
+Name: git-sqlite-filter
+Version: 0.1.0
+Summary: A clean/smudge git filter for SQLite databases with noise reduction
+Author-email: Shane <shane@example.com>
+Project-URL: Homepage, https://github.com/shane/git-sqlite-filter
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Software Development :: Version Control :: Git
+Classifier: Topic :: Database
+Requires-Python: >=3.7
+Description-Content-Type: text/x-rst
+
+*******************
+ git-sqlite-filter
+*******************
+
+Supports sqlite v3.38.0+ (for WAL mode).
+
+
+Configuration (User-level vs. Repository-level)
+###############################################
+
+Add to your ``~/.gitconfig`` file:
+
+.. code-block:: config
+
+  [filter "sqlite"]
+      clean = git-sqlite-clean %f
+      smudge = "sqlite3 -init /dev/null -batch %f .read"
+      required = true
+ [diff "sqlite"]
+      # Allows 'git diff' to show readable SQL changes for binary files
+      textconv = "sqlite3 \"$1\" .dump"

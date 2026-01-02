@@ -1,0 +1,3 @@
+[console_scripts]
+git-sqlite-clean = git_sqlite_filter.clean:main
+git-sqlite-smudge = git_sqlite_filter.smudge:main

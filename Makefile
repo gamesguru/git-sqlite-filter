@@ -47,5 +47,9 @@ endef
 
 .PHONY: format
 format:	##H Run black & isort
+	# format test code
+	black test/
+	isort test/
+	# format main code
 	black git-sqlite/
 	isort git-sqlite/
