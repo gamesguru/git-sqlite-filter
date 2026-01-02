@@ -280,6 +280,13 @@ def main():
         log(f"starting semantic clean for {args.db_file}")
         log(f"sqlite3 library version: {sqlite3.version}")
         log(f"sqlite3 runtime version: {sqlite3.sqlite_version}")
+        try:
+            cli_ver = subprocess.check_output(["sqlite3", "--version"], text=True).strip()
+            log(f"sqlite3 binary version: {cli_ver}")
+        except FileNotFoundError:
+            log("sqlite3 binary version: NOT FOUND (needed for locked databases; 'backup' will fail)")
+        except Exception as e:
+            log(f"sqlite3 binary version: error getting version ({e})")
     
     
     # Safety warning with 5s debounce (User Request)
