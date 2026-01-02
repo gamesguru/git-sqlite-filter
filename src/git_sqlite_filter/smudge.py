@@ -29,39 +29,41 @@ def filter_sql_stream(stream, debug=False):
     """Filter out internal schema creation and handle transactions."""
     yield "BEGIN TRANSACTION;\n"
     
-    # We buffer blocks until we hit a semicolon to handle multiline statements
     buffer = []
     
     for line in stream:
         buffer.append(line)
         
-        # If the line ends with a semicolon (ignoring whitespace), it's a statement
+        # Statement boundary detection
         if line.strip().endswith(";"):
             statement = "".join(buffer)
             buffer = []
             
             statement_upper = statement.upper().strip()
             
-            # Skip creating sqlite_sequence
+            # Skip internal tables and sequence
             if "CREATE TABLE" in statement_upper and "SQLITE_SEQUENCE" in statement_upper:
                 if debug: log("skipping sqlite_sequence creation")
                 continue
 
-            # Skip internal metadata insertions
             if ("INSERT INTO" in statement_upper) and ("SQLITE_MASTER" in statement_upper or "SQLITE_STAT" in statement_upper):
                 if debug: log(f"skipping internal metadata insert: {statement[:30]}...")
                 continue
             
-            # Filter transaction commands to prevent nested transactions
+            # Prevent nested transactions
             if any(statement_upper.startswith(p) for p in ["BEGIN TRANSACTION", "COMMIT", "ROLLBACK"]):
                 if debug: log(f"skipping transaction command: {statement_upper}")
                 continue
 
+            if debug:
+                log(f"yielding statement: {statement.strip()[:60]}...")
             yield statement
             
-    # Yield anything remaining (shouldn't happen with well-formed CSV)
     if buffer:
-        yield "".join(buffer)
+        rem = "".join(buffer)
+        if rem.strip():
+            if debug: log(f"yielding trailing buffer: {rem.strip()[:60]}...")
+            yield rem
         
     yield "COMMIT;\n"
 
@@ -76,18 +78,33 @@ class DatabaseRestorer:
     def restore(self, sql_script):
         """Restore database from SQL script with collation discovery."""
         max_retries = 100
-        for _ in range(max_retries):
+        
+        for i in range(max_retries):
             self._create_temp_db()
             try:
                 if self.debug:
-                    log(f"executing SQL script ({len(sql_script)} bytes)...")
+                    log(f"restoration attempt {i+1}...")
                 self.conn.executescript(sql_script)
                 return True
             except sqlite3.OperationalError as e:
+                err_msg = str(e).lower()
                 if self.debug:
                     log(f"caught operational error: {e}")
+                
                 if not self._ensure_collation(e):
                     log(f"error: restore failed: {e}")
+                    
+                    if "no such table" in err_msg:
+                         # Forensic dump of the DB state
+                         try:
+                             tables = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+                             log(f"current tables in DB: {[t[0] for t in tables]}")
+                             # Check if fts5 is even enabled
+                             self.conn.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(c)")
+                             log("fts5 module seems supported in this python session")
+                         except Exception as probe_err:
+                             log(f"capability check failed: {probe_err}")
+
                     if self.debug:
                         log("--- FAILED SQL SCRIPT ---")
                         sys.stderr.write(sql_script)
@@ -115,7 +132,8 @@ class DatabaseRestorer:
         if match:
             col_name = match.group(1).strip("'\"")
             if col_name not in self.registered_collations:
-                log(f"registering missing collation: {col_name}")
+                if self.debug:
+                    log(f"registering missing collation: {col_name}")
                 self.registered_collations.add(col_name)
                 return True
         return False
@@ -138,23 +156,22 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Log debug info to stderr")
     args = parser.parse_args()
 
-    # 1. Prepare SQL script
+    debug = args.debug or os.environ.get("GIT_TRACE") in ("1", "true", "2")
+
     sql_lines = []
     if args.schema and os.path.exists(args.schema):
-        if args.debug:
+        if debug:
             log(f"loading schema from {args.schema}")
         with open(args.schema, "r") as f:
             sql_lines.extend(f.readlines())
 
-    if args.debug:
-        log("parsing SQL from stdin")
+    if debug:
+        log("parsing SQL stream from stdin")
     
-    # We pass the stream to our statement-aware filter
-    sql_lines.extend(list(filter_sql_stream(sys.stdin, debug=args.debug)))
+    sql_lines.extend(list(filter_sql_stream(sys.stdin, debug=debug)))
     script = "".join(sql_lines)
 
-    # 2. Rebuild Database
-    restorer = DatabaseRestorer(debug=args.debug)
+    restorer = DatabaseRestorer(debug=debug)
     try:
         if restorer.restore(script):
             restorer.stream_to_stdout()

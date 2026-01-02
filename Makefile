@@ -47,9 +47,23 @@ endef
 
 .PHONY: format
 format:	##H Run black & isort
-	# format test code
-	black test/
-	isort test/
-	# format main code
-	black git-sqlite/
-	isort git-sqlite/
+	black src/git_sqlite_filter/
+	isort src/git_sqlite_filter/
+	black test/*.py
+	isort test/*.py
+
+.PHONY: test
+test:	##H Run the test suite
+	./test/run_tests.sh
+
+.PHONY: install
+install: ##H Install the package locally in editable mode
+	pip install -e .
+
+.PHONY: build
+build:	##H Build the python package (wheel/sdist)
+	python3 -m build
+
+.PHONY: dev-deps
+dev-deps: ##H Install development dependencies
+	pip install black isort build wheel

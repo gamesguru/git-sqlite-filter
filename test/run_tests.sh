@@ -23,7 +23,7 @@ echo "Generating test fixtures..."
 python3 test/generate_test_dbs.py
 
 # 2. Iterate over fixtures
-echo "Running tests..."
+echo "Running semantic parity tests..."
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
 
@@ -51,6 +51,18 @@ for db_path in "$FIXTURE_DIR"/*.db; do
         FAILURE_COUNT=$((FAILURE_COUNT + 1))
     fi
 done
+
+# 3. Ultimate Fallback (Inaccessible/New/Corrupt)
+echo -n "Test case: binary_fallback ... "
+echo "raw binary content" > "$TMP_DIR/binary_only.db"
+# This file is not in Git, and is not a valid SQLite DB, so clean.py should fall back to raw read
+if python3 src/git_sqlite_filter/clean.py "$TMP_DIR/binary_only.db" 2>/dev/null | grep -q "raw binary content"; then
+    echo -e "${GREEN}PASSED${NC}"
+    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+else
+    echo -e "${RED}FAILED${NC}"
+    FAILURE_COUNT=$((FAILURE_COUNT + 1))
+fi
 
 echo
 echo -e "${GREEN}Passed: $SUCCESS_COUNT${NC}"

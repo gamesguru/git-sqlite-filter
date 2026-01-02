@@ -40,8 +40,6 @@ def get_table_metadata(conn, table_name, debug=False):
     try:
         # hidden values: 0=normal, 1=hidden, 2=virtual generated, 3=stored generated
         xinfo = conn.execute(f"PRAGMA table_xinfo('{table_name}')").fetchall()
-        if debug:
-            log(f"Metadata for {table_name}: {len(xinfo)} columns found")
         
         insertable = []
         pk_cols = []
@@ -58,6 +56,8 @@ def get_table_metadata(conn, table_name, debug=False):
             insertable = [c[1] for c in info]
             pk_cols = [c[1] for c in info if c[5] > 0]
 
+        if debug:
+            log(f"Metadata for {table_name}: {len(insertable)} cols, PKs: {pk_cols}")
         return insertable, pk_cols
     except sqlite3.OperationalError:
         # Fallback for very old SQLite
@@ -93,7 +93,8 @@ class DatabaseDumper:
         if match:
             col_name = match.group(1).strip("'\"")
             if col_name not in self.registered_collations:
-                log(f"registering missing collation: {col_name}")
+                if self.debug:
+                    log(f"registering missing collation: {col_name}")
                 self.registered_collations.add(col_name)
                 self.conn.close()
                 self.conn = self._connect()
@@ -154,8 +155,8 @@ class DatabaseDumper:
 
         except Exception as e:
             log(f"dump failed: {e}")
-            import traceback
             if self.debug:
+                import traceback
                 traceback.print_exc()
             return False
         finally:
@@ -178,7 +179,7 @@ class DatabaseDumper:
         col_list = ", ".join(f'"{c}"' for c in cols)
 
         if self.debug:
-            log(f"dumping table: {table_name} ({len(cols)} cols), {order_by}")
+            log(f"dumping table: {table_name}, columns: [{col_list}], sort: {order_by}")
 
         while True:
             try:
@@ -192,7 +193,7 @@ class DatabaseDumper:
                 # Catch "no such column: rowid" for some virtual tables without rowids
                 if "no such column: rowid" in str(e) and pks == ["rowid"]:
                     if self.debug:
-                        log(f"rewriting query for {table_name} (no rowid)")
+                        log(f"rewriting query for {table_name} (no rowid support)")
                     try:
                         cursor = self.conn.execute(f'SELECT {col_list} FROM "{table_name}"')
                         for row in cursor:
@@ -242,6 +243,8 @@ def main():
 
     if debug:
         log(f"starting semantic clean for {args.db_file}")
+        log(f"sqlite3 library version: {sqlite3.version}")
+        log(f"sqlite3 runtime version: {sqlite3.sqlite_version}")
 
     # Use a temporary backup for consistency and lock avoidance
     with tempfile.NamedTemporaryFile(prefix="sqlite_bak_", suffix=".sqlite", delete=False) as tmp:
@@ -250,8 +253,8 @@ def main():
     try:
         # Step 1: Backup (CLI is most robust for WAL/Locks)
         backup_cmd = ["sqlite3", "-init", "/dev/null", "-batch", args.db_file, f".backup '{tmp_path}'"]
-        if args.debug:
-            log(f"running backup: {' '.join(backup_cmd)}")
+        if debug:
+            log(f"running backup command: {' '.join(backup_cmd)}")
         res = subprocess.run(backup_cmd, capture_output=True, check=False)
 
         if res.returncode == 0:
@@ -270,7 +273,7 @@ def main():
                 sys.stdout.buffer.write(res_git.stdout)
                 return
 
-        # Ultimate fallback: Binary read
+        # Ultimate fallback: Binary raw read
         log(f"error: {args.db_file} is inaccessible; using binary raw read")
         with open(args.db_file, "rb") as f:
             sys.stdout.buffer.write(f.read())
