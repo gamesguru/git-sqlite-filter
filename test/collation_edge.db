@@ -1,4 +1,10 @@
 PRAGMA user_version = 0;
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE places (
+            id INTEGER PRIMARY KEY,
+            url TEXT COLLATE UUID,
+            title TEXT COLLATE MANIFEST_INDEX
+        );
+INSERT INTO "places" VALUES(1,'https://google.com','Search');
 COMMIT;
