@@ -112,6 +112,10 @@ release: ##H @Release Create a GitHub release (requires gh)
 	gh release create "v$$VERSION" dist/* --generate-notes --title "v$$VERSION"
 
 
+.PHONY: publish
+publish: ##H @Release Upload to PyPI (requires twine)
+	twine upload dist/*
+
 # Version bumping helpers
 .PHONY: bump-patch
 bump-patch:

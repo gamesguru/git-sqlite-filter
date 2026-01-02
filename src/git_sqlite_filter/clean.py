@@ -285,6 +285,7 @@ def main():
 
     try:
         # Step 1: Backup (CLI is most robust for WAL/Locks)
+        # We rely on the CLI failing fast on locks so we can fallback to git history
         backup_cmd = [
             "sqlite3",
             "-init",
