@@ -54,10 +54,17 @@ def stream_dump(db_path, args):
     )
 
     try:
-        if not args.data_only:
-            sys.stdout.write(f"PRAGMA user_version = {user_version};\n")
-
+        header_written = False
         for line in proc.stdout:
+            # Detect SQLite internal error comments and abort immediately
+            if "**** ERROR:" in line:
+                proc.kill()
+                return False
+
+            if not header_written and not args.data_only:
+                sys.stdout.write(f"PRAGMA user_version = {user_version};\n")
+                header_written = True
+
             # Filtering
             if args.data_only and not line.startswith("INSERT INTO"):
                 continue
@@ -71,9 +78,7 @@ def stream_dump(db_path, args):
             sys.stdout.write(line)
 
         proc.wait()
-        if proc.returncode != 0:
-            return False
-        return True
+        return proc.returncode == 0
     except Exception as e:
         log(f"error during streaming: {e}")
         proc.kill()
@@ -92,7 +97,7 @@ def main():
 
     # --- 1. Robust Path: Atomic Backup + Streaming ---
     # We backup to a temp file first to ensure we have a consistent, unlocked snapshot.
-    # This also prevents "database is locked" errors from being streamed to stdout.
+    # This prevents "database is locked" errors from being streamed to stdout.
     with tempfile.NamedTemporaryFile(
         prefix="sqlite_bak_", suffix=".sqlite", delete=False
     ) as tmp:
@@ -111,12 +116,9 @@ def main():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-    # --- 2. Fast Path Fallback: Only if Backup Fails (e.g. storage issues) ---
-    # This might still leak errors, but we only hit it if the robust path fails.
-    if stream_dump(db_file, args):
-        return
-
-    # --- 3. Fail Fallback: True Ignore (Index/HEAD) ---
+    # --- 2. Fail Fallback: True Ignore (Index/HEAD) ---
+    # If backup failed, the DB is likely locked or corrupted. 
+    # Directly dumping from the original file is too risky (leaks error strings).
     log(f"warning: ignoring {db_file}, potentially locked or inaccessible")
 
     # Try Index (:0:)
