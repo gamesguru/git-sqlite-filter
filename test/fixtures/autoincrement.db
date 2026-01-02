@@ -1,0 +1,9 @@
+PRAGMA user_version = 0;
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE seq_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT);
+INSERT INTO "seq_test" VALUES(1,'A');
+INSERT INTO "seq_test" VALUES(2,'B');
+DELETE FROM "sqlite_sequence";
+INSERT INTO "sqlite_sequence" VALUES('seq_test',3);
+COMMIT;

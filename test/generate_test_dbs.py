@@ -99,5 +99,12 @@ def main():
         INSERT INTO users (age) VALUES (25);
     """)
 
+    # 8. AUTOINCREMENT Preservation
+    create_db(f"{fixture_dir}/autoincrement.db", """
+        CREATE TABLE seq_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT);
+        INSERT INTO seq_test (val) VALUES ('A'), ('B'), ('C');
+        DELETE FROM seq_test WHERE id = 3; -- Current max id is 3, but highest counter in sequence should be 3
+    """)
+
 if __name__ == "__main__":
     main()

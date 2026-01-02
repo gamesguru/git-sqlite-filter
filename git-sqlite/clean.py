@@ -184,6 +184,22 @@ def stream_dump(db_path, args):
             ).fetchall()
             for extra in extras:
                 sys.stdout.write(f"{extra[0]};\n")
+
+            # --- PRESERVE AUTOINCREMENT COUNTERS ---
+            # We dump sqlite_sequence data so next IDs aren't reused (Semantic preservation)
+            has_seq = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'"
+            ).fetchone()
+            if has_seq:
+                sys.stdout.write('DELETE FROM "sqlite_sequence";\n')
+                seq_rows = conn.execute(
+                    'SELECT name, seq FROM "sqlite_sequence" ORDER BY name ASC'
+                ).fetchall()
+                for row in seq_rows:
+                    sys.stdout.write(
+                        f"INSERT INTO \"sqlite_sequence\" (name, seq) VALUES ('{row[0]}', {row[1]});\n"
+                    )
+
             sys.stdout.write("COMMIT;\n")
 
         return True
