@@ -34,7 +34,7 @@ WRITE_CMDS = {
 
 def maybe_warn():
     """Emit warning and prompt for confirmation if running a write-capable Git command.
-    
+
     Uses /dev/tty to read user input (bypasses stdin pipe).
     Set GIT_SQLITE_ALLOW_WRITE=1 to skip the prompt (for CI/automation).
     """
@@ -45,17 +45,17 @@ def maybe_warn():
         subcmd = os.path.basename(sys.argv[1])
     else:
         subcmd = ""
-    
+
     if subcmd not in WRITE_CMDS:
         return
-    
+
     # Allow bypass via env var for CI/automation
     if os.environ.get("GIT_SQLITE_ALLOW_WRITE") == "1":
         return
-    
+
     for line in WARNING_MSG:
         log(line)
-    
+
     # Try to prompt user via /dev/tty (bypasses stdin pipe)
     try:
         with open("/dev/tty", "r") as tty:
@@ -177,7 +177,7 @@ class DatabaseDumper:
             # 2. Schema Discovery
             objects = self.conn.execute(
                 """
-                SELECT name, type, sql FROM sqlite_master 
+                SELECT name, type, sql FROM sqlite_master
                 WHERE name NOT LIKE 'sqlite_%'
                 AND type IN ('table', 'view')
                 ORDER BY name ASC
@@ -287,8 +287,8 @@ class DatabaseDumper:
         # Triggers and Indexes (excluding auto-indexes)
         extras = self.conn.execute(
             """
-            SELECT sql FROM sqlite_master 
-            WHERE type IN ('index', 'trigger') 
+            SELECT sql FROM sqlite_master
+            WHERE type IN ('index', 'trigger')
             AND sql IS NOT NULL
             AND name NOT LIKE 'sqlite_autoindex_%'
         """
@@ -344,8 +344,8 @@ def main():
             log("sqlite3 binary version: NOT FOUND (needed for locked databases; 'backup' will fail)")
         except Exception as e:
             log(f"sqlite3 binary version: error getting version ({e})")
-    
-    
+
+
     # Safety warning with 5s debounce (User Request)
     sentinel = os.path.join(tempfile.gettempdir(), "git_sqlite_warn_lock")
     try:

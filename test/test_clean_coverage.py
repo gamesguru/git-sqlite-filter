@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import time
 from unittest import mock
+from unittest.mock import mock_open
 
 import pytest
 
@@ -33,15 +34,17 @@ def test_collation_func():
     assert collation_func("a", "b") == -1
 
 
-def test_maybe_warn_write_cmd(monkeypatch, capsys):
+def test_does_warn_write_cmd(monkeypatch, capsys):
     # Simulate being called via git-checkout
     monkeypatch.setattr(sys, "argv", ["git-checkout", "dummy.db"])
+    # Mock /dev/tty to return 'y' so the function continues
+    monkeypatch.setattr("builtins.open", mock_open(read_data="y\n"))
     maybe_warn()
     captured = capsys.readouterr().err
     assert "WARNING: YOU CAN EASILY LOSE DATA" in captured
 
 
-def test_maybe_warn_read_cmd(monkeypatch, capsys):
+def test_does_not_warn_read_cmd(monkeypatch, capsys):
     # Simulate being called via git-sqlite-clean (not a write cmd)
     monkeypatch.setattr(sys, "argv", ["git-sqlite-clean", "dummy.db"])
     maybe_warn()
