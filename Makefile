@@ -134,7 +134,7 @@ bump-major:
 
 # Combined release flow
 .PHONY: deploy
-deploy: build release publish ##H @Release Build and deploy current version to GitHub and PyPI
+deploy: clean build release publish ##H @Release Build and deploy current version to GitHub and PyPI
 
 .PHONY: release-patch
 release-patch: bump-patch ##H @Release Bump patch version, commit, tag, and deploy
