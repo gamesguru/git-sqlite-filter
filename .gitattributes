@@ -1,0 +1,3 @@
+*.sqlite filter=sqlite diff=text
+*.sqlite3 filter=sqlite diff=text
+*.db filter=sqlite diff=text
