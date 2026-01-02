@@ -261,6 +261,7 @@ def maybe_warn():
 
         log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
         log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
+        log("OR WORK WITH AN OFFLINE COPY OF YOUR DATABASE YOU AREN'T AFRAID TO LOSE!!!")
 
         # Update timestamp
         with open(sentinel, "w") as f:
