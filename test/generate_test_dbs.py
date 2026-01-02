@@ -10,7 +10,6 @@ def create_db(path, sql, user_version=None):
     if os.path.exists(path):
         os.remove(path)
     
-    # We need to handle missing collations even during creation if we use them in schema/inserts
     registered_collations = set()
     
     while True:
@@ -43,16 +42,17 @@ def create_db(path, sql, user_version=None):
     print(f"Created: {path}")
 
 def main():
-    os.makedirs("test", exist_ok=True)
+    fixture_dir = "test/fixtures"
+    os.makedirs(fixture_dir, exist_ok=True)
 
     # 1. Version 0 DB
-    create_db("test/version_0.db", "CREATE TABLE t1 (id INTEGER);", user_version=0)
+    create_db(f"{fixture_dir}/version_0.db", "CREATE TABLE t1 (id INTEGER);", user_version=0)
 
     # 2. Huge Version DB
-    create_db("test/version_huge.db", "CREATE TABLE t1 (id INTEGER);", user_version=2147483647)
+    create_db(f"{fixture_dir}/version_huge.db", "CREATE TABLE t1 (id INTEGER);", user_version=2147483647)
 
     # 3. Custom Collation DB (Firefox style)
-    create_db("test/collation_edge.db", """
+    create_db(f"{fixture_dir}/collation_edge.db", """
         CREATE TABLE places (
             id INTEGER PRIMARY KEY,
             url TEXT COLLATE UUID,
@@ -62,9 +62,41 @@ def main():
     """)
 
     # 4. Blob / Large Data DB
-    create_db("test/blobs.db", """
+    create_db(f"{fixture_dir}/blobs.db", """
         CREATE TABLE assets (id INTEGER, data BLOB);
         INSERT INTO assets VALUES (1, zeroblob(1024 * 100)); -- 100KB blob
+    """)
+
+    # 5. FTS5 (Virtual Table)
+    create_db(f"{fixture_dir}/fts.db", """
+        CREATE VIRTUAL TABLE docs USING fts5(content);
+        INSERT INTO docs VALUES ('The quick brown fox');
+        INSERT INTO docs VALUES ('Jumped over the lazy dog');
+    """)
+
+    # 6. Generated Columns
+    create_db(f"{fixture_dir}/generated_cols.db", """
+        CREATE TABLE items (
+            id INTEGER PRIMARY KEY,
+            price REAL,
+            tax_rate REAL,
+            total REAL GENERATED ALWAYS AS (price * (1 + tax_rate)) VIRTUAL
+        );
+        INSERT INTO items (price, tax_rate) VALUES (10.0, 0.2);
+    """)
+
+    # 7. Complex Constraints (Triggers & CHECK)
+    create_db(f"{fixture_dir}/constraints.db", """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            age INTEGER CHECK(age >= 18),
+            status TEXT DEFAULT 'active'
+        );
+        CREATE TABLE logs (msg TEXT);
+        CREATE TRIGGER user_log AFTER INSERT ON users BEGIN
+            INSERT INTO logs VALUES ('New user ' || NEW.id);
+        END;
+        INSERT INTO users (age) VALUES (25);
     """)
 
 if __name__ == "__main__":

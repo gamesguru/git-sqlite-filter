@@ -2,6 +2,7 @@
  git-sqlite-filter
 *******************
 
+Supports sqlite v3.38.0+ (for WAL mode).
 
 
 Configuration (User-level vs. Repository-level)
