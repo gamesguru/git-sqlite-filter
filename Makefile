@@ -62,7 +62,7 @@ install: ##H Install the package locally in editable mode
 
 .PHONY: build
 build:	##H Build the python package (wheel/sdist)
-	python3 -m build
+	pip install -U build && python3 -m build
 
 .PHONY: dev-deps
 dev-deps: ##H Install development dependencies
