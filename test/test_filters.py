@@ -19,11 +19,19 @@ def setup_fixtures():
 
 
 def get_fixtures():
-    return [
-        os.path.join(FIXTURE_DIR, f)
-        for f in os.listdir(FIXTURE_DIR)
-        if f.endswith(".db")
+    # Only return explicitly managed fixtures to avoid picking up stray/corrupt files
+    expected = [
+        "version_0.db",
+        "version_huge.db",
+        "collation_edge.db",
+        "blobs.db",
+        "fts.db",
+        "generated_cols.db",
+        "constraints.db",
+        "autoincrement.db",
+        "mixed_edge.db",
     ]
+    return [os.path.join(FIXTURE_DIR, f) for f in expected]
 
 
 @pytest.mark.parametrize("db_path", get_fixtures())

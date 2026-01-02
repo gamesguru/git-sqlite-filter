@@ -1,0 +1,6 @@
+git-sqlite-filter (0.1.2-1) unstable; urgency=medium
+
+  * Revert lock resilience logic to fail-fast CLI backup.
+  * Update packaging configuration.
+
+ -- Shane <shane@example.com>  Fri, 02 Jan 2026 06:35:00 -0500

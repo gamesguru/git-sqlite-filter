@@ -133,6 +133,19 @@ def main():
     """,
     )
 
+    # 9. Mixed Edge Case (reserved names, weird types)
+    create_db(
+        f"{fixture_dir}/mixed_edge.db",
+        """
+        CREATE TABLE "order" (
+            "index" INTEGER PRIMARY KEY,
+            "values" TEXT,
+            "check" TEXT
+        );
+        INSERT INTO "order" VALUES (1, 'mixed data', 'ok');
+    """,
+    )
+
 
 if __name__ == "__main__":
     main()

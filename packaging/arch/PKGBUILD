@@ -1,6 +1,6 @@
 # Maintainer: Shane <shane@example.com>
 pkgname=git-sqlite-filter
-pkgver=0.1.0
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="A clean/smudge git filter for SQLite databases with noise reduction"
 arch=('any')
