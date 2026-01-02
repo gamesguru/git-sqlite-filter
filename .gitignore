@@ -122,3 +122,12 @@ cython_debug/
 # Temporary files (project specific)
 /.tmp
 !/.tmp/**
+
+# Debian build directory (created by make deb)
+/debian/
+
+# Arch build directories
+packaging/arch/pkg/
+packaging/arch/src/
+packaging/arch/*.pkg.tar.zst
+packaging/arch/*.tar.gz
