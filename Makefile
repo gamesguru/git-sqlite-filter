@@ -70,9 +70,8 @@ lint: ##H @General Run ruff lint
 	ruff check src/git_sqlite_filter test
 
 .PHONY: test
-test: ##H @General Run tests with coverage report
-	coverage run
-	coverage report
+test: ##H @General Run tests w/ coverage report
+	python3 -m pytest -v --cov=src/git_sqlite_filter --cov-report=term-missing test/
 
 .PHONY: install
 install: ##H @General Install the package locally in editable mode
@@ -80,7 +79,8 @@ install: ##H @General Install the package locally in editable mode
 
 .PHONY: build
 build:	##H @General Build the python package (wheel/sdist)
-	pip install -U build && python3 -m build
+	pip install -U build
+	python3 -m build
 
 .PHONY: clean
 clean: ##H @General Remove build artifacts
@@ -90,7 +90,7 @@ clean: ##H @General Remove build artifacts
 
 .PHONY: dev-deps
 dev-deps: ##H @General Install development dependencies
-	pip install black isort build wheel ruff twine pytest coverage
+	pip install -r requirements-dev.txt
 
 .PHONY: arch
 arch:	##H @Packaging Build Arch Linux package (requires makepkg)

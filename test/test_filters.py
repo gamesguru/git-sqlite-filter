@@ -100,11 +100,14 @@ def test_binary_fallback():
 
     # The main() in clean.py handles the fallback for non-sqlite files.
     # Test by calling the function directly to ensure coverage.
-    from git_sqlite_filter.clean import main
     from unittest.mock import patch
 
-    with patch.object(sys, "argv", ["git-sqlite-clean", binary_db]), \
-         patch.object(sys, "stdout", new_callable=io.BytesIO) as mock_stdout:
-        main()
-        output = mock_stdout.getvalue().decode()
-        assert content in output
+    from git_sqlite_filter.clean import main
+
+    with patch.object(sys, "argv", ["git-sqlite-clean", binary_db]):
+        # Mock stdout such that stdout.buffer is a BytesIO
+        output_bytes = io.BytesIO()
+        with patch.object(sys, "stdout") as mock_stdout:
+            mock_stdout.buffer = output_bytes
+            main()
+            assert content.encode() in output_bytes.getvalue()

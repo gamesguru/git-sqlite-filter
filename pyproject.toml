@@ -50,7 +50,7 @@ command_line = "-m pytest -svv"
 source = ["src/git_sqlite_filter"]
 
 [tool.coverage.report]
-fail_under = 55.00
+fail_under = 63.00
 precision = 2
 show_missing = true
 skip_empty = true
