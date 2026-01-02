@@ -1,0 +1,24 @@
+# Maintainer: Shane <shane@example.com>
+pkgname=git-sqlite-filter
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A clean/smudge git filter for SQLite databases with noise reduction"
+arch=('any')
+url="https://github.com/shane/git-sqlite-filter"
+license=('MIT')
+depends=('python')
+makedepends=('python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+source=("https://github.com/shane/git-sqlite-filter/archive/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 README.rst "$pkgdir/usr/share/doc/$pkgname/README.rst"
+    # Man page will be added here
+}

@@ -1,0 +1,25 @@
+.TH git-sqlite-clean 1 "January 2026" "git-sqlite-filter" "User Commands"
+.SH NAME
+git-sqlite-clean \- Git clean filter for SQLite databases
+.SH SYNOPSIS
+.B git-sqlite-clean
+[\fIOPTIONS\fR] \fIFILE\fR
+.SH DESCRIPTION
+.B git-sqlite-clean
+is an intelligent Git filter that converts binary SQLite databases into deterministic SQL dumps.
+It performs noise reduction by sorting rows by Primary Key and rounding floats to prevent phantom diffs.
+.SH OPTIONS
+.TP
+.B \-\-float\-precision \fIN\fR
+Round floating point numbers to \fIN\fR decimal places.
+.TP
+.B \-\-data\-only
+Output only INSERT statements, skipping schema.
+.TP
+.B \-\-schema\-only
+Output only schema definitions, skipping data.
+.TP
+.B \-\-debug
+Output diagnostic information to stderr.
+.SH SEE ALSO
+git-sqlite-smudge(1)

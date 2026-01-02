@@ -1,0 +1,9 @@
+PRAGMA user_version = 0;
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE VIRTUAL TABLE docs USING fts5(content);
+CREATE TABLE users (id INTEGER PRIMARY KEY, uid TEXT COLLATE UUID);
+INSERT INTO "docs" ("content") VALUES ('The quick brown fox');
+INSERT INTO "users" ("id", "uid") VALUES (1, 'z');
+INSERT INTO "users" ("id", "uid") VALUES (2, 'a');
+COMMIT;

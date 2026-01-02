@@ -1,0 +1,19 @@
+.TH git-sqlite-smudge 1 "January 2026" "git-sqlite-filter" "User Commands"
+.SH NAME
+git-sqlite-smudge \- Git smudge filter for SQLite databases
+.SH SYNOPSIS
+.B git-sqlite-smudge
+[\fIOPTIONS\fR] [\fIFILE\fR]
+.SH DESCRIPTION
+.B git-sqlite-smudge
+is a Git filter that rebuilds a binary SQLite database from a deterministic SQL dump on stdin.
+It automatically discovers and registers missing custom collation functions during the restoration process.
+.SH OPTIONS
+.TP
+.B \-\-schema \fIFILE\fR
+Apply a base schema from \fIFILE\fR before processing the input dump.
+.TP
+.B \-\-debug
+Output diagnostic information and the processed SQL stream to stderr.
+.SH SEE ALSO
+git-sqlite-clean(1)

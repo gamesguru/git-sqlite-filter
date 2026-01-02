@@ -1,0 +1,15 @@
+Source: git-sqlite-filter
+Section: utils
+Priority: optional
+Maintainer: Shane <shane@example.com>
+Build-Depends: debhelper-compat (= 13), python3-all, python3-setuptools, dh-python
+Standards-Version: 4.5.0
+Homepage: https://github.com/shane/git-sqlite-filter
+
+Package: git-sqlite-filter
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, sqlite3
+Description: Git clean/smudge filter for SQLite databases
+ This package provides filters to handle SQLite databases in Git by
+ converting them to deterministic, sorted SQL dumps. This reduces
+ repository bloat and enables readable diffs.
