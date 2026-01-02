@@ -1,3 +1,6 @@
+# Copy these lines to one of the following places
+#  GLOBAL: ~/.gitconfig
+#  LOCAL:  .git/config
 [filter "sqlite"]
 	clean = git-sqlite-clean %f
 	smudge = git-sqlite-smudge %f
