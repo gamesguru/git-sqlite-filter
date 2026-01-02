@@ -24,21 +24,40 @@ Configure the filter in your ``.gitattributes``:
 
 .. code-block:: text
 
-    *.sqlite filter=sqlite
+    *.sqlite filter=sqlite diff=sqlite
+    *.db filter=sqlite diff=sqlite
 
-And in your ``.gitconfig``:
+And in your ``.gitconfig`` (global or local):
 
 .. code-block:: ini
 
     [filter "sqlite"]
         clean = git-sqlite-clean %f
-        smudge = git-sqlite-smudge
+        smudge = git-sqlite-smudge %f
         required = true
+    [diff "sqlite"]
+        # Allows 'git diff' to show readable SQL changes
+        textconv = git-sqlite-clean
 
-Development
------------
-Run the test suite:
+Debugging
+---------
+Enable debug logging with the ``--debug`` flag or by setting ``GIT_TRACE=1``:
 
 .. code-block:: bash
 
-    ./test/run_tests.sh
+    GIT_TRACE=1 git diff mydb.sqlite
+
+Development
+-----------
+Run the test suite with coverage:
+
+.. code-block:: bash
+
+    make dev-deps
+    make test
+
+Run linting:
+
+.. code-block:: bash
+
+    make lint

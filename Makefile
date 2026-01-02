@@ -84,7 +84,7 @@ build:	##H @General Build the python package (wheel/sdist)
 
 .PHONY: clean
 clean: ##H @General Remove build artifacts
-	rm -rf dist/ build/ *.egg-info/ src/*.egg-info/ .tmp/ .pytest_cache/ .mypy_cache/ debian/
+	rm -rf dist/ build/ *.egg-info/ src/*.egg-info/ .pytest_cache/ .mypy_cache/ .ruff_cache/ debian/
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
 .PHONY: dev-deps
@@ -97,7 +97,7 @@ arch:	##H @Packaging Build Arch Linux package (requires makepkg)
 
 .PHONY: deb
 deb:	##H @Packaging Build Debian package (requires dpkg-buildpackage)
-	ln -sf packaging/debian debian
+	cp -r packaging/debian debian
 	dpkg-buildpackage -us -uc -b
 	rm -rf debian
 
