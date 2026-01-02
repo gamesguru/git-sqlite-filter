@@ -3,10 +3,10 @@ import argparse
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
-import sqlite3
 
 # Handle broken pipes (e.g. | head) without stack trace
 TOOL = "[git-sqlite-smudge]"
@@ -19,9 +19,9 @@ def log(msg):
 def filter_sql_stream(stream):
     """Generator that filters transaction control and internal tables from SQL stream."""
     tx_patterns = ["BEGIN TRANSACTION", "COMMIT", "ROLLBACK"]
-    
+
     yield "BEGIN TRANSACTION;\n"
-    
+
     for line in stream:
         # Skip creating sqlite_sequence (it's internal and auto-created)
         if "CREATE TABLE" in line and "sqlite_sequence" in line:
@@ -43,7 +43,7 @@ def filter_sql_stream(stream):
             continue
 
         yield line
-        
+
     yield "COMMIT;\n"
 
 
@@ -57,8 +57,10 @@ def collation_func(s1, s2):
 def main():
     parser = argparse.ArgumentParser(description="Git smudge filter for SQLite")
     parser.add_argument("db_file", nargs="?", help="Ignored but passed by Git")
-    parser.add_argument("--schema", help="Path to a base schema file to apply before data")
-    
+    parser.add_argument(
+        "--schema", help="Path to a base schema file to apply before data"
+    )
+
     args = parser.parse_args()
 
     # Read all SQL into memory for the collation-retry loop
@@ -67,7 +69,7 @@ def main():
         log(f"Loading schema from {args.schema}")
         with open(args.schema, "r") as f:
             sql_lines.extend(f.readlines())
-    
+
     sql_lines.extend(list(filter_sql_stream(sys.stdin)))
     script = "".join(sql_lines)
 
@@ -80,7 +82,7 @@ def main():
         conn = sqlite3.connect(tmp_db_path)
         registered_collations = set()
         max_retries = 100
-        
+
         for _ in range(max_retries):
             try:
                 # We use executescript for the filtered script
@@ -96,11 +98,13 @@ def main():
                         log(f"registering missing collation: {col_name}")
                         conn.create_collation(col_name, collation_func)
                         registered_collations.add(col_name)
-                        
+
                         # Re-initialize DB to retry
                         conn.close()
                         os.remove(tmp_db_path)
-                        fd, tmp_db_path = tempfile.mkstemp(prefix="sqlite_smudge_", suffix=".sqlite")
+                        fd, tmp_db_path = tempfile.mkstemp(
+                            prefix="sqlite_smudge_", suffix=".sqlite"
+                        )
                         os.close(fd)
                         conn = sqlite3.connect(tmp_db_path)
                         for existing_col in registered_collations:

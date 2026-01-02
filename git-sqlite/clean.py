@@ -3,10 +3,10 @@ import argparse
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
-import sqlite3
 
 # Handle broken pipes gracefully
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -47,10 +47,10 @@ def stream_dump(db_path, args):
     conn = None
     try:
         conn = sqlite3.connect(db_path)
-        
+
         # 1. PRAGMA user_version
         user_version = conn.execute("PRAGMA user_version").fetchone()[0]
-        
+
         # 2. Setup Collation Handling
         # Since iterdump() might fail halfway if it hits a custom collation,
         # and we are streaming to stdout, we have a problem.
@@ -58,14 +58,16 @@ def stream_dump(db_path, args):
         # Faster: Use a very high retry count and hope we catch them all.
         registered_collations = set()
         max_attempts = 100
-        
+
         for attempt in range(max_attempts):
-            output_buffer = [] # Buffer ONLY if we expect errors, but that's slow.
+            output_buffer = []  # Buffer ONLY if we expect errors, but that's slow.
             # Realistically, we'll just try to dump. If it fails, we register and try again.
-            # To avoid the "partial output" problem, we use a temporary file for the dump 
+            # To avoid the "partial output" problem, we use a temporary file for the dump
             # and then stream it to stdout only on success.
-            
-            with tempfile.NamedTemporaryFile(mode="w+", prefix="sqlite_clean_sql_", suffix=".sql", delete=True) as sql_tmp:
+
+            with tempfile.NamedTemporaryFile(
+                mode="w+", prefix="sqlite_clean_sql_", suffix=".sql", delete=True
+            ) as sql_tmp:
                 try:
                     if not args.data_only:
                         sql_tmp.write(f"PRAGMA user_version = {user_version};\n")
@@ -78,19 +80,19 @@ def stream_dump(db_path, args):
                             continue
                         if args.schema_only and line.startswith("INSERT INTO"):
                             continue
-                        
+
                         # Normalization
                         if args.float_precision is not None:
                             line = normalize_floats(line, args.float_precision)
-                        
+
                         sql_tmp.write(line + "\n")
-                    
+
                     # If we reached here, success! Flush and stream to stdout.
                     sql_tmp.seek(0)
                     for line in sql_tmp:
                         sys.stdout.write(line)
                     return True
-                    
+
                 except sqlite3.OperationalError as e:
                     msg = str(e)
                     match = re.search(r"no such collation sequence: (\S+)", msg)
@@ -103,8 +105,8 @@ def stream_dump(db_path, args):
                             registered_collations.add(col_name)
                             for c in registered_collations:
                                 conn.create_collation(c, collation_func)
-                            continue # Retry the whole iterdump
-                    
+                            continue  # Retry the whole iterdump
+
                     log(f"error during iterdump on attempt {attempt}: {e}")
                     return False
 
@@ -120,9 +122,13 @@ def main():
     parser = argparse.ArgumentParser(description="Git clean filter for SQLite")
     parser.add_argument("db_file", help="Path to the SQLite database file")
     parser.add_argument("--float-precision", type=int, help="Round floats to X digits")
-    parser.add_argument("--data-only", action="store_true", help="Output only INSERT statements")
-    parser.add_argument("--schema-only", action="store_true", help="Output only schema (no INSERTs)")
-    
+    parser.add_argument(
+        "--data-only", action="store_true", help="Output only INSERT statements"
+    )
+    parser.add_argument(
+        "--schema-only", action="store_true", help="Output only schema (no INSERTs)"
+    )
+
     args = parser.parse_args()
     db_file = args.db_file
 
@@ -135,8 +141,16 @@ def main():
     try:
         # Use CLI for backup as it's the most robust way to handle locks/WAL
         res_bak = subprocess.run(
-            ["sqlite3", "-init", "/dev/null", "-batch", db_file, f".backup '{tmp_path}'"],
-            capture_output=True, check=False
+            [
+                "sqlite3",
+                "-init",
+                "/dev/null",
+                "-batch",
+                db_file,
+                f".backup '{tmp_path}'",
+            ],
+            capture_output=True,
+            check=False,
         )
 
         if res_bak.returncode == 0:
