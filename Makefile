@@ -83,8 +83,8 @@ rpm:	##H @Packaging Build RPM package (requires rpmbuild)
 	rpmbuild -ba packaging/rpm/git-sqlite-filter.spec
 
 .PHONY: test
-test:	##H @General Run the test suite
-	./test/run_tests.sh
+test:	##H @General Run the test suite (using pytest)
+	pytest -v test/test_filters.py
 
 .PHONY: install
 install: ##H @General Install the package locally in editable mode
@@ -118,4 +118,4 @@ clean: ##H @General Remove build artifacts
 
 .PHONY: dev-deps
 dev-deps: ##H @General Install development dependencies
-	pip install black isort build wheel ruff twine
+	pip install black isort build wheel ruff twine pytest
