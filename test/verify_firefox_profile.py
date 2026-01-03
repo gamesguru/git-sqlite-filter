@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 
+
 def create_firefox_style_db(path):
     """
     Creates a SQLite database with a schema similar to Firefox's places.sqlite.
@@ -12,12 +13,13 @@ def create_firefox_style_db(path):
     """
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
-    
+
     # Enable foreign keys
     conn.execute("PRAGMA foreign_keys=ON")
 
     # simplified schema based on places.sqlite
-    conn.executescript("""
+    conn.executescript(
+        """
         CREATE TABLE moz_places (
             id INTEGER PRIMARY KEY,
             url LONGVARCHAR,
@@ -56,10 +58,12 @@ def create_firefox_style_db(path):
         
         INSERT INTO moz_historyvisits (place_id, visit_date, visit_type) VALUES (1, 1630000000000000, 1);
         INSERT INTO moz_historyvisits (place_id, visit_date, visit_type) VALUES (2, 1630000010000000, 1);
-    """)
-    
+    """
+    )
+
     conn.commit()
     conn.close()
+
 
 def main():
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
@@ -68,34 +72,43 @@ def main():
     try:
         print(f"Creating Firefox-style DB at {db_path}...")
         create_firefox_style_db(db_path)
-        
+
         print("Running git-sqlite-clean...")
         # Assume git-sqlite-clean is installed or in path, or use local src
         cmd = ["git-sqlite-clean", db_path]
-        
+
         # If not in path, try to run from source
-        if subprocess.run(["which", "git-sqlite-clean"], capture_output=True).returncode != 0:
-            print("git-sqlite-clean not found in PATH, using src/git_sqlite_filter/clean.py")
-            src_path = os.path.join(os.path.dirname(__file__), "..", "src", "git_sqlite_filter", "clean.py")
+        if (
+            subprocess.run(
+                ["which", "git-sqlite-clean"], capture_output=True
+            ).returncode
+            != 0
+        ):
+            print(
+                "git-sqlite-clean not found in PATH, using src/git_sqlite_filter/clean.py"
+            )
+            src_path = os.path.join(
+                os.path.dirname(__file__), "..", "src", "git_sqlite_filter", "clean.py"
+            )
             cmd = [sys.executable, src_path, db_path]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         if result.returncode != 0:
             print("ERROR: git-sqlite-clean failed!")
             print("Stderr:", result.stderr)
             sys.exit(1)
-            
+
         print("Success! Output snippet:")
         print(result.stdout[:200] + "...")
-        
+
         # Basic validation of output
         if "INSERT INTO" not in result.stdout:
             print("ERROR: Output doesn't look like SQL dump")
             sys.exit(1)
-            
+
         if "PRAGMA journal_mode=WAL" in result.stdout:
-             print("NOTE: WAL mode pragma found (expected behavior logic check needed)")
+            print("NOTE: WAL mode pragma found (expected behavior logic check needed)")
 
     finally:
         if os.path.exists(db_path):
@@ -105,6 +118,7 @@ def main():
             os.remove(db_path + "-wal")
         if os.path.exists(db_path + "-shm"):
             os.remove(db_path + "-shm")
+
 
 if __name__ == "__main__":
     main()

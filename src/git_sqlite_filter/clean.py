@@ -2,6 +2,7 @@
 import argparse
 import os
 import re
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -166,18 +167,35 @@ class DatabaseDumper:
 
     def _dump_table_data(self, table_name):
         """Stream sorted rows for a given table."""
+        # 1. Skip Virtual Tables data
+        # These are either contentless (leading to 'no query solution' errors)
+        # or populated by triggers/external sources. We only want to dump
+        # data for standard tables.
+        sql = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name=?", (table_name,)
+        ).fetchone()
+        if sql and "CREATE VIRTUAL TABLE" in sql["sql"].upper():
+            if self.debug:
+                log(f"skipping data for virtual table: {table_name}")
+            return
+
         cols, pks = get_table_metadata(self.conn, table_name, self.debug)
         if not cols:
             if self.debug:
                 log(f"skipping data for {table_name} (no insertable columns)")
             return
 
-        # FTS5 tables often don't have PKs, but they have rowid
-        if not pks:
-            pks = ["rowid"]
+        # 2. Improve Determinism
+        # If no PKs, sort by ALL columns for maximum stability.
+        # Fallback to rowid only if absolutely necessary.
+        if pks:
+            pk_list = ", ".join(f'"{pk}"' for pk in pks)
+            order_by = f"ORDER BY {pk_list}"
+        else:
+            # Sort by all values to ensure stable diffs
+            all_cols = ", ".join(f'"{c}"' for c in cols)
+            order_by = f"ORDER BY {all_cols}"
 
-        pk_list = ", ".join(f'"{pk}"' for pk in pks)
-        order_by = f"ORDER BY {pk_list}"
         col_list = ", ".join(f'"{c}"' for c in cols)
 
         if self.debug:
@@ -196,26 +214,6 @@ class DatabaseDumper:
                     )
                 break
             except sqlite3.OperationalError as e:
-                # Catch "no such column: rowid" for some virtual tables without rowids
-                if "no such column: rowid" in str(e) and pks == ["rowid"]:
-                    if self.debug:
-                        log(f"rewriting query for {table_name} (no rowid support)")
-                    try:
-                        cursor = self.conn.execute(
-                            f'SELECT {col_list} FROM "{table_name}"'
-                        )
-                        for row in cursor:
-                            vals = [
-                                format_sql_value(v, self.args.float_precision)
-                                for v in row
-                            ]
-                            sys.stdout.write(
-                                f"INSERT INTO \"{table_name}\" ({col_list}) VALUES ({', '.join(vals)});\n"
-                            )
-                        break
-                    except Exception as e2:
-                        raise e2
-
                 if not self._ensure_collation(e):
                     raise
 
@@ -259,9 +257,9 @@ def maybe_warn():
         if os.path.exists(sentinel) and (time.time() - os.path.getmtime(sentinel) < 5):
             return
 
-        log("WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!!")
-        log("TO KEEP YOUR DATA SAFE, USE GIT FROM A USER WITH READ-ONLY ACCESS!!!")
-        log("OR WORK WITH AN OFFLINE COPY OF YOUR DATABASE YOU AREN'T AFRAID TO LOSE!!!")
+        log(
+            "WARNING: YOU CAN EASILY LOSE DATA IF YOU ISSUE WRITE COMMANDS!!! (using offline copy is recommended)"
+        )
 
         # Update timestamp
         with open(sentinel, "w") as f:
@@ -291,7 +289,7 @@ def main():
 
     if debug:
         log(f"starting semantic clean for {args.db_file}")
-        log(f"sqlite3 library version: {sqlite3.version}")
+        log(f"sqlite3 module version: {getattr(sqlite3, 'version', 'unknown')}")
         log(f"sqlite3 runtime version: {sqlite3.sqlite_version}")
         try:
             cli_ver = subprocess.check_output(
@@ -305,6 +303,51 @@ def main():
         except Exception as e:
             log(f"sqlite3 binary version: error getting version ({e})")
 
+    # Fast check: Is this even an SQLite file?
+    try:
+        with open(args.db_file, "rb") as f:
+            header = f.read(16)
+            if header != b"SQLite format 3\x00":
+                if debug:
+                    log(f"magic header mismatch: {header!r}; falling back to binary")
+                # Not an SQLite file -> pass through as binary using streaming I/O
+                sys.stdout.buffer.write(header)
+                shutil.copyfileobj(f, sys.stdout.buffer)
+                return
+    except OSError:
+        pass
+    except Exception as e:
+        if debug:
+            log(f"unexpected error checking header: {e}")
+        pass
+
+    # Submodule optimization check
+    super_root = get_superproject_root()
+    if super_root:
+        ignored = get_git_config_bool("sqlite-filter.ignore-submodules")
+        if not ignored:
+            ignored = get_git_config_bool(
+                "sqlite-filter.ignore-submodules", cwd=super_root
+            )
+
+        if ignored:
+            maybe_warn_submodule_skip()
+            if debug:
+                log("skipping submodule scan (configured to ignore)")
+            # Fast binary pass-through using streaming I/O
+            try:
+                with open(args.db_file, "rb") as f:
+                    shutil.copyfileobj(f, sys.stdout.buffer)
+            except OSError as e:
+                log(f"error reading file in fast-path: {e}")
+                sys.exit(1)
+            return
+        else:
+            log("tip: using sqlite filter in submodules can be slow.")
+            log(
+                "     run 'git config sqlite-filter.ignore-submodules true' in the superproject to skip."
+            )
+
     maybe_warn()
 
     # Use a temporary backup for consistency and lock avoidance
@@ -315,9 +358,10 @@ def main():
 
     try:
         # Step 1: Backup (CLI is most robust for WAL/Locks)
-        # We rely on the CLI failing fast on locks so we can fallback to git history
         backup_cmd = [
             "sqlite3",
+            "-cmd",
+            "PRAGMA busy_timeout=100;",
             "-init",
             "/dev/null",
             "-batch",
@@ -326,7 +370,14 @@ def main():
         ]
         if debug:
             log(f"running backup command: {' '.join(backup_cmd)}")
-        res = subprocess.run(backup_cmd, capture_output=True, check=False)
+        try:
+            res = subprocess.run(
+                backup_cmd, capture_output=True, check=False, timeout=5
+            )
+        except subprocess.TimeoutExpired:
+            log("backup command timed out")
+            # Create a dummy failed result
+            res = subprocess.CompletedProcess(backup_cmd, 1, stderr=b"timeout")
 
         if res.returncode == 0:
             # Step 2: Semantic Dump
@@ -337,27 +388,102 @@ def main():
             err = res.stderr.decode().strip()
             if "database is locked" not in err:
                 log(f"backup failed: {err}")
+            # --- 0. Fix for double-cleaning (textconv) ---
+            # If the file header isn't SQLite, it might already be a SQL dump.
+            # In that case, just pass it through.
+            try:
+                with open(args.db_file, "rb") as f:
+                    header = f.read(16)
+                if header != b"SQLite format 3\0":
+                    if debug:
+                        log(
+                            f"file {args.db_file} is not a SQLite database; passing through"
+                        )
+                    with open(args.db_file, "rb") as f:
+                        shutil.copyfileobj(f, sys.stdout.buffer)
+                    return
+            except Exception as e:
+                # If we can't read it, let the backup/dump logic fail naturally
+                if args.debug:
+                    log(f"failed to check header for {args.db_file}: {e}")
 
-        # Fallback to Index/HEAD if backup/dump fails
-        log(
-            f"warning: falling back to git history for {args.db_file} (database locked/modified)"
-        )
-        for ref in [f":0:{args.db_file}", f"HEAD:{args.db_file}"]:
+            # --- 1. Robust Path: Atomic Backup + iterdump ---
+
+        # Fallback to Index if backup/dump fails (using index is fastest)
+        log(f"warning: using git history for {args.db_file} (database locked/modified)")
+        try:
             res_git = subprocess.run(
-                ["git", "show", ref], capture_output=True, check=False
+                ["git", "show", f":{args.db_file}"],
+                capture_output=True,
+                check=False,
+                timeout=2,
             )
-            if res_git.returncode == 0:
-                sys.stdout.buffer.write(res_git.stdout)
-                return
+        except subprocess.TimeoutExpired:
+            log(f"git show timed out for {args.db_file}")
+            res_git = subprocess.CompletedProcess([], 1)
+        if res_git.returncode == 0:
+            sys.stdout.buffer.write(res_git.stdout)
+            return
 
-        # Ultimate fallback: Binary raw read
+        # Ultimate fallback: Binary raw read using streaming I/O
         log(f"error: {args.db_file} is inaccessible; using binary raw read")
         with open(args.db_file, "rb") as f:
-            sys.stdout.buffer.write(f.read())
+            shutil.copyfileobj(f, sys.stdout.buffer)
 
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def maybe_warn_submodule_skip():
+    """Print a skip message if not printed recently (5s debounce)."""
+    sentinel = os.path.join(tempfile.gettempdir(), "git_sqlite_skip_lock")
+    try:
+        # Check if warning was shown recently
+        if os.path.exists(sentinel) and (time.time() - os.path.getmtime(sentinel) < 5):
+            return
+
+        log(
+            "note: skipping submodule sqlite cleanup (configured via sqlite-filter.ignore-submodules)"
+        )
+
+        # Update timestamp
+        with open(sentinel, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass  # Ignore permissions/IO errors
+
+
+def get_superproject_root():
+    """Return the path to the superproject's working tree if in a submodule."""
+    # Fast heuristic: In submodules, .git is a file. In regular repos, it's a directory.
+    # This avoids calling 'git rev-parse' for every file in a non-submodule repo.
+    if not os.path.exists(".git") or not os.path.isfile(".git"):
+        return None
+
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--show-superproject-working-tree"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out if out else None
+    except subprocess.CalledProcessError:
+        return None
+
+
+def get_git_config_bool(key, cwd=None):
+    """Get a git config boolean value (true/false) handling various formats."""
+    try:
+        cmd = ["git"]
+        if cwd:
+            cmd.extend(["-C", cwd])
+        cmd.extend(["config", "--type=bool", "--get", key])
+
+        val = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True).strip()
+        return val == "true"
+    except subprocess.CalledProcessError:
+        return False
 
 
 if __name__ == "__main__":
