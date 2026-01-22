@@ -44,6 +44,7 @@ exclude = [".venv", "venv", "build", "dist"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+norecursedirs = ["fixtures"]
 
 [tool.coverage.run]
 command_line = "-m pytest -svv"

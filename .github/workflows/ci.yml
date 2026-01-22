@@ -15,6 +15,12 @@ jobs:
         python-version: ["3.8", "3.10", "3.12"]
 
     steps:
+      # Disable any stale sqlite filter config before checkout
+      - name: Disable sqlite filter
+        run: |
+          git config --global filter.sqlite.smudge cat
+          git config --global filter.sqlite.clean cat
+
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -22,13 +28,22 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install and configure git-sqlite-filter
         run: |
           pip install -e .
-          pip install pytest coverage ruff
+          # Configure filter using python -m (scripts may not be in PATH)
+          git config --global filter.sqlite.smudge 'python -m git_sqlite_filter.smudge %f'
+          git config --global filter.sqlite.clean 'python -m git_sqlite_filter.clean %f'
+          git config --global filter.sqlite.required true
+          # Force smudge: delete .db files and restore them through filter
+          find . \( -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \) -delete
+          git checkout -- .
+
+      - name: Install lint dependencies
+        run: make dev-deps
 
       - name: Lint with ruff
-        run: ruff check src/git_sqlite_filter test
+        run: make lint
 
       - name: Run tests with coverage
         run: |

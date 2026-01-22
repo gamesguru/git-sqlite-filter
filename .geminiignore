@@ -1,5 +1,8 @@
-!/.tmp
-!/.tmp/**
+!/.tmp/*
+!/.tmp/**/
+!/.tmp/**/*
+!/.tmp/**/**/
+!/.tmp/**/**/*
 !/.coverage
 !/.coverage/**
 

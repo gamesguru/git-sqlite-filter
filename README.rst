@@ -44,6 +44,14 @@ And in your ``.gitconfig`` (global or local):
         # Allows 'git diff' to show readable SQL changes
         textconv = git-sqlite-clean
 
+Configuration
+-------------
+To disable the slow semantic dump in submodules (and fallback to binary copy), run:
+
+.. code-block:: bash
+
+    git config sqlite-filter.ignore-submodules true
+
 Debugging
 ---------
 Enable debug logging with the ``--debug`` flag or by setting ``GIT_TRACE=1``:
