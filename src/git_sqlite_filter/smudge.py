@@ -9,8 +9,9 @@ import subprocess
 import sys
 import tempfile
 
-# Handle broken pipes (e.g. | head) without stack trace
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+# Handle broken pipes (e.g. | head) without stack trace (Unix only)
+if hasattr(signal, "SIGPIPE"):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 TOOL = "[git-sqlite-smudge]"
 
