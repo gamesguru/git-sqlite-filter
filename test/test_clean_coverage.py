@@ -1,12 +1,15 @@
+"""Tests for coverage of specific clean filter logic."""
+
 import io
 import sqlite3
 import sys
 from unittest import mock
 
-from git_sqlite_filter.clean import collation_func, format_sql_value
+from git_sqlite_filter.clean import collation_func, format_sql_value, main, maybe_warn
 
 
 def test_format_sql_value_variants():
+    """Test SQL formatting for various data types."""
     assert format_sql_value(None) == "NULL"
     assert format_sql_value(5) == "5"
     assert format_sql_value(3.1400, float_precision=2) == "3.14"
@@ -16,6 +19,7 @@ def test_format_sql_value_variants():
 
 
 def test_collation_func():
+    """Test the python collation emulator."""
     assert collation_func("a", "a") == 0
     assert collation_func("b", "a") == 1
     assert collation_func("a", "b") == -1
@@ -31,8 +35,6 @@ def test_wal_mode_integration(tmp_path, monkeypatch, capsys):
     conn.commit()
     conn.close()
 
-    from git_sqlite_filter.clean import main
-
     output_bytes = io.BytesIO()
     monkeypatch.setattr(sys, "argv", ["git-sqlite-clean", str(db_path)])
     with mock.patch.object(sys, "stdout") as mock_stdout:
@@ -47,8 +49,6 @@ def test_wal_mode_integration(tmp_path, monkeypatch, capsys):
 
 def test_maybe_warn():
     """Test the warning debounce logic."""
-    from git_sqlite_filter.clean import maybe_warn
-
     with mock.patch("time.time") as mock_time, mock.patch(
         "os.path.exists"
     ) as mock_exists, mock.patch("os.path.getmtime") as mock_getmtime, mock.patch(
@@ -67,7 +67,7 @@ def test_maybe_warn():
         assert mock_log.called
         assert "WARNING" in mock_log.call_args_list[0][0][0]
         # Should write timestamp
-        mock_file.assert_called_with(mock.ANY, "w")
+        mock_file.assert_called_with(mock.ANY, "w", encoding="utf-8")
 
         mock_log.reset_mock()
         mock_file.reset_mock()
@@ -90,4 +90,3 @@ def test_maybe_warn():
 
         # Should warn again
         assert mock_log.called
-        pass  # Just ensure it runs without error

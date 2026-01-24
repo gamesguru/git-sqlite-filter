@@ -1,7 +1,7 @@
 from io import StringIO
 from unittest.mock import patch
 
-from ffpass import main
+from ffpass import main  # type: ignore
 
 
 def test_inspect_output(clean_profile):

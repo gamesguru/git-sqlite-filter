@@ -1,7 +1,10 @@
+"""Extensive tests for clean filter including submodule handling."""
+
 import io
 import os
 import sqlite3
 import subprocess
+from unittest import mock
 
 from git_sqlite_filter.clean import main as clean_main
 
@@ -24,7 +27,6 @@ def test_debug_mode_and_without_rowid(tmp_path):
 
     # We can't avoid sys.argv/stdout capture mocking easily without refactoring main(),
     # so we keep that, but we use real file paths.
-    from unittest import mock
 
     with mock.patch(
         "sys.argv", ["git-sqlite-clean", "--debug", str(db_path)]
@@ -106,8 +108,6 @@ def test_submodule_skip_logic(tmp_path):
     old_cwd = os.getcwd()
     os.chdir(sub_dir)
     try:
-        from unittest import mock
-
         output_bytes = io.BytesIO()
 
         # We mock argv/stdout/stderr but use REAL git/subprocess logic in clean.py

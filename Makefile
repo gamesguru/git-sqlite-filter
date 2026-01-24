@@ -66,11 +66,22 @@ format:	##H @General Run black & isort
 	isort test/*.py
 	ruff check --fix --quiet --exit-zero src/git_sqlite_filter test
 
+
 .PHONY: lint
 lint: ##H @General Run ruff lint
 	ruff check src/git_sqlite_filter test
 	pylint src/git_sqlite_filter test
 	mypy src/git_sqlite_filter test
+
+.PHONY: pylint
+pylint: ##H @General Run pylint
+	pylint src/git_sqlite_filter test
+
+.PHONY: mypy
+mypy: ##H @General Run mypy
+	mypy src/git_sqlite_filter test
+
+
 
 .PHONY: test
 test: ##H @General Run tests w/ coverage report

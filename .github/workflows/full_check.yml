@@ -1,0 +1,51 @@
+name: Full Check
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  full-check:
+    name: Full Check (Lint, Types, Coverage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Disable sqlite filter (global)
+        run: |
+          git config --global filter.sqlite.smudge cat
+          git config --global filter.sqlite.clean cat
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: make dev-deps
+
+      - name: Configure git filters
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          git config --global filter.sqlite.smudge 'python -m git_sqlite_filter.smudge %f'
+          git config --global filter.sqlite.clean 'python -m git_sqlite_filter.clean %f'
+          git config --global filter.sqlite.required true
+
+          # Force re-checkout of fixtures to apply the smudge filter
+          find test/fixtures -name "*.db" -delete
+          git checkout HEAD -- test/fixtures/
+
+      - name: Lint Codebase
+        run: make lint
+
+      - name: Run Tests & Coverage
+        run: make test
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

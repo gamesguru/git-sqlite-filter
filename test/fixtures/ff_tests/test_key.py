@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import ffpass
+import ffpass  # type: ignore
 
 # This key corresponds to the static 'tests/firefox-84' profile in your repo
 TEST_KEY = (
@@ -34,7 +34,7 @@ def mixed_key_profile(tmp_path):
     (multiple keys present).
     """
     # 1. Base the profile on an existing valid one
-    src = Path("test/fixtures/ff-tests/firefox-84")
+    src = Path("test/fixtures/ff_tests/firefox-84")
     dst = tmp_path / "firefox-mixed"
     shutil.copytree(src, dst)
 
@@ -74,33 +74,33 @@ def mixed_key_profile(tmp_path):
 
 
 def test_firefox_key():
-    key = _get_key(Path("test/fixtures/ff-tests/firefox-84"))
+    key = _get_key(Path("test/fixtures/ff_tests/firefox-84"))
     assert key == TEST_KEY
 
 
 def test_firefox_mp_key():
-    key = _get_key(Path("test/fixtures/ff-tests/firefox-mp-84"), MASTER_PASSWORD)
+    key = _get_key(Path("test/fixtures/ff_tests/firefox-mp-84"), MASTER_PASSWORD)
     assert key == TEST_KEY
 
 
 def test_firefox_wrong_masterpassword_key():
     with pytest.raises(ffpass.WrongPassword):
-        _get_key(Path("test/fixtures/ff-tests/firefox-mp-84"), "wrongpassword")
+        _get_key(Path("test/fixtures/ff_tests/firefox-mp-84"), "wrongpassword")
 
 
 def test_legacy_firefox_key():
-    key = _get_key(Path("test/fixtures/ff-tests/firefox-70"))
+    key = _get_key(Path("test/fixtures/ff_tests/firefox-70"))
     assert key == TEST_KEY
 
 
 def test_legacy_firefox_mp_key():
-    key = _get_key(Path("test/fixtures/ff-tests/firefox-mp-70"), MASTER_PASSWORD)
+    key = _get_key(Path("test/fixtures/ff_tests/firefox-mp-70"), MASTER_PASSWORD)
     assert key == TEST_KEY
 
 
 def test_legacy_firefox_wrong_masterpassword_key():
     with pytest.raises(ffpass.WrongPassword):
-        _get_key(Path("test/fixtures/ff-tests/firefox-mp-70"), "wrongpassword")
+        _get_key(Path("test/fixtures/ff_tests/firefox-mp-70"), "wrongpassword")
 
 
 def test_mixed_key_retrieval(mixed_key_profile):

@@ -1,4 +1,3 @@
----
 name: CI
 
 on:
@@ -8,19 +7,15 @@ on:
     branches: [master, main]
 
 jobs:
-  test:
+  # Lightweight unit tests on multiple Python versions
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.8", "3.10", "3.12"]
 
     steps:
-      # Disable any stale sqlite filter config before checkout
-      - name: Disable sqlite filter
-        run: |
-          git config --global filter.sqlite.smudge cat
-          git config --global filter.sqlite.clean cat
-
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -28,24 +23,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install and configure git-sqlite-filter
+      - name: Install package and pytest
         run: |
-          pip install -e .
-          # Configure filter using python -m (scripts may not be in PATH)
+          pip install .
+          pip install pytest
+
+      - name: Configure and smudge fixtures
+        run: |
+          # Configure filter using python -m
           git config --global filter.sqlite.smudge 'python -m git_sqlite_filter.smudge %f'
           git config --global filter.sqlite.clean 'python -m git_sqlite_filter.clean %f'
           git config --global filter.sqlite.required true
+
           # Force smudge: delete .db files and restore them through filter
-          find . \( -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \) -delete
-          git checkout -- .
+          find test/fixtures -name "*.db" -delete
+          git checkout HEAD -- test/fixtures/
 
-      - name: Install lint dependencies
-        run: make dev-deps
-
-      - name: Lint with ruff
-        run: make lint
-
-      - name: Run tests with coverage
-        run: |
-          coverage run
-          coverage report
+      - name: Run unit tests
+        run: pytest -svv test/

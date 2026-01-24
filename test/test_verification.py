@@ -1,3 +1,5 @@
+"""Verification tests running against real binaries or modules."""
+
 import glob
 import os
 import re
@@ -13,25 +15,29 @@ TEST_DIR = "test/fixtures"
 
 
 def run_clean(db_path):
+    """Run the clean filter on a database file."""
     # Always use the module to test the current code, not installed binary
     cmd = [sys.executable, "-m", "git_sqlite_filter.clean", str(db_path)]
     env = os.environ.copy()
-    # Ensure src is in PYTHONPATH if not already (though -m usually handles it from root)
-    if not any(p.endswith("src") for p in sys.path):
-        env["PYTHONPATH"] = os.path.join(os.getcwd(), "src")
+
+    # Critical: Ensure src/ is in PYTHONPATH
+    src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
 
     # Run git-sqlite-clean
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     if result.returncode != 0:
         return None, result.stderr
     return result.stdout, None
 
 
 def run_smudge(sql_input):
+    """Run the smudge filter on SQL input."""
     # Always use the module to test the current code, not installed binary
     cmd = [sys.executable, "-m", "git_sqlite_filter.smudge"]
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.join(os.getcwd(), "src")
+    src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
 
     # Encode input to bytes as smudge expects binary input stream
     if isinstance(sql_input, str):
@@ -43,6 +49,7 @@ def run_smudge(sql_input):
         capture_output=True,
         text=None,  # Capture binary output
         env=env,
+        check=False,
     )
     if result.returncode != 0:
         print(f"Smudge error: {result.stderr.decode('utf-8', errors='replace')}")
@@ -53,7 +60,7 @@ def run_smudge(sql_input):
 def run_sqlite_dump(db_path):
     """Run sqlite3 .dump on the database file."""
     cmd = ["sqlite3", db_path, ".dump"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return None, result.stderr
     return result.stdout, None
@@ -108,35 +115,35 @@ def test_full_round_trip(db_file):
         tmp_db_path = tmp_db.name
 
     try:
-        # 3. Dump both
-        dump_orig, err_orig = run_sqlite_dump(db_file)
-        assert dump_orig is not None, f"Dump original failed: {err_orig}"
-
-        dump_new, err_new = run_sqlite_dump(tmp_db_path)
-        assert dump_new is not None, f"Dump restored failed: {err_new}"
-
-        # 4. Compare
-        lines_orig = normalize(dump_orig)
-        lines_new = normalize(dump_new)
-
-        diff_count = abs(len(lines_orig) - len(lines_new))
-
-        if diff_count > 0:
-            set_orig = set(lines_orig)
-            set_new = set(lines_new)
-            unique_orig = list(set_orig - set_new)[:5]
-            unique_new = list(set_new - set_orig)[:5]
-            print(f"\nUnique to original: {unique_orig}")
-            print(f"Unique to restored: {unique_new}")
-
-        assert (
-            lines_orig == lines_new
-        ), f"Round-trip content mismatch! Diff count: {diff_count}"
-
+        _verify_round_trip_equality(db_file, tmp_db_path)
     finally:
         if os.path.exists(tmp_db_path):
             os.remove(tmp_db_path)
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main(["-v", __file__]))
+def _verify_round_trip_equality(original_db, restored_db):
+    """Helpers to dump and compare two databases."""
+    # 3. Dump both
+    dump_orig, err_orig = run_sqlite_dump(original_db)
+    assert dump_orig is not None, f"Dump original failed: {err_orig}"
+
+    dump_new, err_new = run_sqlite_dump(restored_db)
+    assert dump_new is not None, f"Dump restored failed: {err_new}"
+
+    # 4. Compare
+    lines_orig = normalize(dump_orig)
+    lines_new = normalize(dump_new)
+
+    diff_count = abs(len(lines_orig) - len(lines_new))
+
+    if diff_count > 0:
+        set_orig = set(lines_orig)
+        set_new = set(lines_new)
+        unique_orig = list(set_orig - set_new)[:5]
+        unique_new = list(set_new - set_orig)[:5]
+        print(f"\nUnique to original: {unique_orig}")
+        print(f"Unique to restored: {unique_new}")
+
+    assert (
+        lines_orig == lines_new
+    ), f"Round-trip content mismatch! Diff count: {diff_count}"

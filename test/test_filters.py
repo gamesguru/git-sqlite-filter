@@ -1,24 +1,30 @@
+"""Integration tests for the git-sqlite-filter package."""
+
 import io
 import os
+import sqlite3
 import subprocess
 import sys
+import threading
+import time
+from unittest.mock import patch
 
 import pytest
 
 from git_sqlite_filter.clean import DatabaseDumper
-from git_sqlite_filter.smudge import DatabaseRestorer
+from git_sqlite_filter.clean import main as clean_main
+from git_sqlite_filter.smudge import (
+    DatabaseRestorer,
+    filter_sql_stream,
+)
+from git_sqlite_filter.smudge import main as smudge_main
 
 FIXTURE_DIR = "test/fixtures"
 TMP_DIR = ".tmp/test_runs"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_fixtures():
-    os.makedirs(TMP_DIR, exist_ok=True)
-    subprocess.run([sys.executable, "test/generate_test_dbs.py"], check=True)
-
-
 def get_fixtures():
+    """Return a list of fixture database paths."""
     # Only return explicitly managed fixtures to avoid picking up stray/corrupt files
     expected = [
         "version_0.db",
@@ -36,6 +42,7 @@ def get_fixtures():
 
 @pytest.mark.parametrize("db_path", get_fixtures())
 def test_semantic_parity(db_path):
+    """Ensure that clean -> smudge roundtrip preserves data semantics."""
     db_name = os.path.basename(db_path)
 
     # Step A: Clean original DB -> SQL Dump A
@@ -49,13 +56,13 @@ def test_semantic_parity(db_path):
             "debug": False,
         },
     )()
-    dumper_a = DatabaseDumper(db_path, args_a)
 
     out_a = io.StringIO()
     old_stdout = sys.stdout
     sys.stdout = out_a
     try:
-        dumper_a.dump()
+        with DatabaseDumper(db_path, args_a) as dumper_a:
+            dumper_a.dump()
     finally:
         sys.stdout = old_stdout
 
@@ -63,24 +70,23 @@ def test_semantic_parity(db_path):
     assert dump_a, f"Dump A for {db_name} is empty"
 
     # Step B: Smudge SQL Dump A -> Rebuilt DB
-    restorer = DatabaseRestorer(debug=False)
-    # The restorer uses filter_sql_stream in main(), but here we can just pass the dump
-    # However, the smudge filter typically expects the output of filter_sql_stream.
-    # Let's replicate the main smudge logic:
-    from git_sqlite_filter.smudge import filter_sql_stream
+    with DatabaseRestorer(debug=False) as restorer:
+        # The restorer uses filter_sql_stream in main(), but here we can just pass the dump
+        # However, the smudge filter typically expects the output of filter_sql_stream.
+        # Let's replicate the main smudge logic:
+        filtered_script = "".join(
+            list(filter_sql_stream(io.StringIO(dump_a), debug=False))
+        )
 
-    filtered_script = "".join(list(filter_sql_stream(io.StringIO(dump_a), debug=False)))
+        assert restorer.restore(filtered_script), f"Restoration failed for {db_name}"
+        rebuilt_db_path = restorer.tmp_path
 
-    assert restorer.restore(filtered_script), f"Restoration failed for {db_name}"
-    rebuilt_db_path = restorer.tmp_path
-
-    try:
         # Step C: Clean Rebuilt DB -> SQL Dump B
-        dumper_b = DatabaseDumper(rebuilt_db_path, args_a)
         out_b = io.StringIO()
         sys.stdout = out_b
         try:
-            dumper_b.dump()
+            with DatabaseDumper(rebuilt_db_path, args_a) as dumper_b:
+                dumper_b.dump()
         finally:
             sys.stdout = old_stdout
 
@@ -88,56 +94,59 @@ def test_semantic_parity(db_path):
 
         # Step D: Compare
         assert dump_a == dump_b, f"Semantic mismatch for {db_name}"
-    finally:
-        restorer.cleanup()
 
 
 def test_binary_fallback():
+    """Ensure non-SQLite files are passed through as-is."""
+    os.makedirs(TMP_DIR, exist_ok=True)
     binary_db = os.path.join(TMP_DIR, "binary_only.db")
-    content = "raw binary content\n"
-    with open(binary_db, "w") as f:
+    content = b"raw binary content\n"
+    with open(binary_db, "wb") as f:
         f.write(content)
 
     # The main() in clean.py handles the fallback for non-sqlite files.
     # Test by calling the function directly to ensure coverage.
-    from unittest.mock import patch
-
-    from git_sqlite_filter.clean import main
 
     with patch.object(sys, "argv", ["git-sqlite-clean", binary_db]):
         # Mock stdout such that stdout.buffer is a BytesIO
         output_bytes = io.BytesIO()
         with patch.object(sys, "stdout") as mock_stdout:
             mock_stdout.buffer = output_bytes
-            main()
-            assert content.encode() in output_bytes.getvalue()
+            clean_main()
+            assert content in output_bytes.getvalue()
 
 
 def test_lock_performance_timeout():
     """Ensure tool fails fast (< 0.1s) when DB is locked."""
-    import sqlite3
-    import threading
-    import time
 
+    os.makedirs(TMP_DIR, exist_ok=True)
     db_path = os.path.join(TMP_DIR, "locked.db")
     if os.path.exists(db_path):
         os.remove(db_path)
     # Create a dummy DB
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE t (id INTEGER)")
-    conn.execute("INSERT INTO t VALUES (1)")
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.execute("INSERT INTO t VALUES (1)")
+        conn.commit()
+    finally:
+        conn.close()
 
     # Hold an exclusive lock in a separate thread
     ev = threading.Event()
 
     def hold_lock():
-        c = sqlite3.connect(db_path)
-        c.execute("BEGIN EXCLUSIVE")
-        ev.set()
-        time.sleep(0.3)  # Hold briefly - just enough to test fail-fast
-        c.close()
+        c = None
+        try:
+            c = sqlite3.connect(db_path)
+            c.execute("BEGIN EXCLUSIVE")
+            ev.set()
+            time.sleep(0.3)  # Hold briefly - just enough to test fail-fast
+        except sqlite3.OperationalError:
+            ev.set()
+        finally:
+            if c:
+                c.close()
 
     t = threading.Thread(target=hold_lock)
     t.start()
@@ -147,7 +156,7 @@ def test_lock_performance_timeout():
     # Run clean.py against locked DB
     cmd = [sys.executable, "src/git_sqlite_filter/clean.py", db_path]
     # We expect it to write to stdout (fallback)
-    subprocess.run(cmd, capture_output=True)
+    subprocess.run(cmd, capture_output=True, check=False)
     end = time.time()
 
     t.join()
@@ -160,9 +169,6 @@ def test_lock_performance_timeout():
 
 def test_smudge_cli():
     """Directly test smudge.main() to ensure CLI coverage."""
-    from unittest.mock import patch
-
-    from git_sqlite_filter.smudge import main as smudge_main
 
     sql_input = (
         "BEGIN TRANSACTION;\nCREATE TABLE t(a);\nINSERT INTO t VALUES(1);\nCOMMIT;\n"

@@ -12,7 +12,7 @@ def clean_profile(tmp_path):
     """
 
     def _setup(profile_name):
-        src = Path("test/fixtures/ff-tests") / profile_name
+        src = Path("test/fixtures/ff_tests") / profile_name
         dst = tmp_path / profile_name
         shutil.copytree(src, dst, dirs_exist_ok=True)
         return dst

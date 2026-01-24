@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
+"""Git smudge filter for SQLite databases."""
+
 import argparse
 import os
 import re
 import shutil
 import signal
 import sqlite3
-import subprocess
 import sys
 import tempfile
+
+from .utils import (
+    collation_func,
+    get_common_args,
+    should_skip_submodule,
+)
 
 # Handle broken pipes (e.g. | head) without stack trace (Unix only)
 if hasattr(signal, "SIGPIPE"):
@@ -17,14 +24,54 @@ TOOL = "[git-sqlite-smudge]"
 
 
 def log(msg):
+    """Write a message to stderr with the tool prefix."""
     sys.stderr.write(f"{TOOL} {msg}\n")
 
 
-def collation_func(s1, s2):
-    """Dumb lexicographical sort for unregistered collations."""
-    if s1 == s2:
-        return 0
-    return 1 if s1 > s2 else -1
+def _is_fts5_trigger(statement_upper):
+    """Check if statement is an internal FTS5 trigger."""
+    if "CREATE TRIGGER" not in statement_upper:
+        return False
+    # Regex to find the table name the trigger is ON
+    match = re.search(r"ON\s+[\"']?([a-zA-Z0-9_]+)[\"']?", statement_upper)
+    if match:
+        table_name = match.group(1)
+        if any(
+            table_name.endswith(x)
+            for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")
+        ):
+            return True
+    return False
+
+
+def _should_suppress_statement(statement, debug=False):
+    """Determine if a SQL statement should be filtered out.
+    Extracted from filter_sql_stream to reduce cyclomatic complexity."""
+    upper = statement.upper().strip()
+
+    if "PRAGMA WRITABLE_SCHEMA" in upper:
+        return True
+
+    if _is_fts5_trigger(upper):
+        if debug:
+            log("skipping FTS5 internal trigger")
+        return True
+
+    if "ROLLBACK" in upper and "ROLLBACK TO" not in upper:
+        log("warning: skipping ROLLBACK in dump (corrupted input?)")
+        return True
+
+    if ("INSERT INTO" in upper) and (
+        "SQLITE_MASTER" in upper or "SQLITE_STAT" in upper
+    ):
+        return True
+
+    if upper.startswith(("BEGIN TRANSACTION", "COMMIT", "ROLLBACK")):
+        parts = upper.strip(";").split()
+        if len(parts) < 3:
+            return True
+
+    return False
 
 
 def filter_sql_stream(stream, debug=False):
@@ -42,46 +89,8 @@ def filter_sql_stream(stream, debug=False):
             statement = current_block
             buffer = []
 
-            statement_upper = statement.upper().strip()
-
-            # Skip problematic pragmas that shouldn't be in a dump
-            if "PRAGMA WRITABLE_SCHEMA" in statement_upper:
-                continue
-
-            # Skip FTS5 internal triggers (they auto-recreate on FTS table creation)
-            if "CREATE TRIGGER" in statement_upper:
-                # Regex to find the table name the trigger is ON
-                # Matches: ON [schema.]table_name
-                match = re.search(r"ON\s+[\"']?([a-zA-Z0-9_]+)[\"']?", statement_upper)
-                if match:
-                    table_name = match.group(1)
-                    if any(
-                        table_name.endswith(x)
-                        for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")
-                    ):
-                        if debug:
-                            log(f"skipping FTS5 internal trigger on {table_name}")
-                        continue
-
-            # Skip ROLLBACK - if this appears, the dump is corrupted, just skip it
-            if "ROLLBACK" in statement_upper and "ROLLBACK TO" not in statement_upper:
-                log("warning: skipping ROLLBACK in dump (corrupted input?)")
-                continue
-
-            # Skip sqlite_sequence, sqlite_master inserts
-            if ("INSERT INTO" in statement_upper) and (
-                "SQLITE_MASTER" in statement_upper or "SQLITE_STAT" in statement_upper
-            ):
-                continue
-
-            # Skip ALL transaction-related statements from the dump (we provide our own)
-            if statement_upper.startswith(("BEGIN TRANSACTION", "COMMIT", "ROLLBACK")):
-                parts = statement_upper.strip(";").split()
-                # "ROLLBACK TO savepoint" has 3 parts. "ROLLBACK" has 1.
-                if len(parts) < 3:
-                    continue
-
-            yield statement
+            if not _should_suppress_statement(statement, debug):
+                yield statement
 
     if buffer:
         final = "".join(buffer)
@@ -92,86 +101,94 @@ def filter_sql_stream(stream, debug=False):
 
 
 class DatabaseRestorer:
+    """Handles parsing and restoring of SQLite database from SQL dump."""
+
     def __init__(self, debug=False):
         self.registered_collations = set()
         self.tmp_path = None
         self.conn = None
         self.debug = debug
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.cleanup()
+        if self.conn:
+            self.conn.close()
+
     def restore(self, sql_script_source):
         """Restore database from SQL iterator or string with collation discovery."""
         if isinstance(sql_script_source, str):
             # Wrap string in a list to make it an iterable of one statement
             sql_script_source = [sql_script_source]
-        # Step 1: Stream the SQL to a temporary file so we can read it multiple times
-        # for collation discovery without keeping it all in memory.
+
+        # Step 1: Stream the SQL to a temporary file
         fd_sql, sql_tmp_path = tempfile.mkstemp(
             prefix="sqlite_smudge_sql_", suffix=".sql"
         )
         try:
-            with os.fdopen(fd_sql, "w") as f_sql:
+            with os.fdopen(fd_sql, "w", encoding="utf-8") as f_sql:
                 for statement in sql_script_source:
                     f_sql.write(statement)
 
-            # Step 2: Attempt restoration (multi-pass if new collations are found)
-            max_retries = 100
-            # Step 2: Attempt restoration (multi-pass if new collations are found)
-            max_retries = 100
-            for i in range(max_retries):
-                self._create_temp_db()
-                retry_needed = False
-
-                try:
-                    if self.debug:
-                        log(f"restoration attempt {i+1}...")
-
-                    with open(sql_tmp_path, "r") as f_sql:
-                        # Use the same filter-like logic to split the file back into statements
-                        # (though it's already statement-per-yield from the iterator)
-                        # We use a simple generator to re-yield statements from the file.
-                        for statement in self._yield_statements(f_sql):
-                            if not statement.strip():
-                                continue
-
-                            try:
-                                self.conn.execute(statement)
-                            except sqlite3.OperationalError as e:
-                                if self.debug:
-                                    log(f"caught operational error: {e}")
-
-                                # 1. Collation Error: MUST retry the whole process (broken state)
-                                if self._ensure_collation(e):
-                                    retry_needed = True
-                                    break
-
-                                # 2. Ignorable Error: WARN and continue to next statement
-                                e_str = str(e).lower()
-                                if "no such table" in e_str or (
-                                    "index" in e_str and "already exists" in e_str
-                                ):
-                                    log(f"warning: ignoring error: {e}")
-                                    continue
-
-                                # 3. Fatal Error: Raise to outer block
-                                raise
-
-                except sqlite3.OperationalError as e:
-                    log(f"error: restore failed: {e}")
-                    return False
-                finally:
-                    if not retry_needed and self.conn:
-                        self.conn.close()
-
-                if retry_needed:
-                    if self.conn:
-                        self.conn.close()
-                    continue
-
-                return True
-            return False
+            return self._restore_loop(sql_tmp_path)
         finally:
             if os.path.exists(sql_tmp_path):
                 os.remove(sql_tmp_path)
+
+    def _restore_loop(self, sql_tmp_path):
+        """Attempt restoration in a loop to handle dynamic collations."""
+        max_retries = 100
+        for i in range(max_retries):
+            self._create_temp_db()
+
+            if self.debug:
+                log(f"restoration attempt {i+1}...")
+
+            success, retry = self._apply_sql_file(sql_tmp_path)
+
+            if success:
+                return True
+
+            if self.conn:
+                self.conn.close()
+
+            if not retry:
+                return False
+        return False
+
+    def _apply_sql_file(self, sql_tmp_path):
+        """Apply SQL from file to current DB connection."""
+        try:
+            with open(sql_tmp_path, "r", encoding="utf-8") as f_sql:
+                for statement in self._yield_statements(f_sql):
+                    if not statement.strip():
+                        continue
+                    try:
+                        self.conn.execute(statement)
+                    except sqlite3.OperationalError as e:
+                        if self._handle_op_error(e):
+                            return False, True
+        except sqlite3.OperationalError as e:
+            log(f"error: restore failed: {e}")
+            return False, False
+        return True, False
+
+    def _handle_op_error(self, e):
+        """Handle SQLite operational errors during restore."""
+        if self.debug:
+            log(f"caught operational error: {e}")
+
+        if self._ensure_collation(e):
+            return True
+
+        e_str = str(e).lower()
+        if "no such table" in e_str or ("index" in e_str and "already exists" in e_str):
+            log(f"warning: ignoring error: {e}")
+            return False
+
+        raise e
 
     def _yield_statements(self, file_handle):
         """Yield full SQL statements from a file handle using robust splitting."""
@@ -223,33 +240,22 @@ class DatabaseRestorer:
 
 
 def main():
+    """Entry point for git-sqlite-smudge."""
     parser = argparse.ArgumentParser(description="Git smudge filter for SQLite")
     parser.add_argument("db_file", nargs="?", help="Ignored but passed by Git")
     parser.add_argument(
         "--schema", help="Path to a base schema file to apply before data"
     )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Log debug info to stderr (also triggered by GIT_TRACE=1)",
-    )
-    args = parser.parse_args()
+
+    args = get_common_args(parser)
 
     debug = args.debug or os.environ.get("GIT_TRACE") in ("1", "true", "2")
 
     # Submodule optimization check: Skip smudge if configured to ignore-submodules
-    super_root = get_superproject_root()
-    if super_root:
-        ignored = get_git_config_bool("sqlite-filter.ignore-submodules")
-        if not ignored:
-            ignored = get_git_config_bool(
-                "sqlite-filter.ignore-submodules", cwd=super_root
-            )
-
-        if ignored:
-            # Fast pass-through: pipe stdin directly to stdout
-            shutil.copyfileobj(sys.stdin.buffer, sys.stdout.buffer)
-            return
+    if should_skip_submodule("git-sqlite-smudge"):
+        # Fast pass-through: pipe stdin directly to stdout
+        shutil.copyfileobj(sys.stdin.buffer, sys.stdout.buffer)
+        return
 
     # filter_sql_stream is a generator. We combine it with schema if present.
     def get_script_iterator():
@@ -257,51 +263,17 @@ def main():
         if args.schema and os.path.exists(args.schema):
             if debug:
                 log(f"loading schema from {args.schema}")
-            with open(args.schema, "r") as f:
+            with open(args.schema, "r", encoding="utf-8") as f:
                 yield from filter_sql_stream(f, debug=debug)
 
         # Data (filter_sql_stream provides its own transaction/setup)
         yield from filter_sql_stream(sys.stdin, debug=debug)
 
-    restorer = DatabaseRestorer(debug=debug)
-    try:
+    with DatabaseRestorer(debug=debug) as restorer:
         if restorer.restore(get_script_iterator()):
             restorer.stream_to_stdout()
         else:
             sys.exit(1)
-    finally:
-        restorer.cleanup()
-
-
-def get_superproject_root():
-    """Return the path to the superproject's working tree if in a submodule."""
-    # Fast heuristic: In submodules, .git is a file. In regular repos, it's a directory.
-    if not os.path.exists(".git") or not os.path.isfile(".git"):
-        return None
-
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--show-superproject-working-tree"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        return out if out else None
-    except subprocess.CalledProcessError:
-        return None
-
-
-def get_git_config_bool(key, cwd=None):
-    """Get a git config boolean value (true/false) handling various formats."""
-    try:
-        cmd = ["git"]
-        if cwd:
-            cmd.extend(["-C", cwd])
-        cmd.extend(["config", "--type=bool", "--get", key])
-
-        val = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True).strip()
-        return val == "true"
-    except subprocess.CalledProcessError:
-        return False
 
 
 if __name__ == "__main__":

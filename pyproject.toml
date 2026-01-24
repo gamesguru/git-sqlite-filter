@@ -36,6 +36,7 @@ target-version = ['py37']
 [tool.isort]
 profile = "black"
 known_first_party = ["git_sqlite_filter"]
+known_third_party = ["ffpass"]
 
 [tool.ruff]
 line-length = 88
@@ -51,9 +52,12 @@ command_line = "-m pytest -svv"
 source = ["src/git_sqlite_filter"]
 
 [tool.coverage.report]
-fail_under = 65.00
+fail_under = 77.17
 precision = 2
 show_missing = true
 skip_empty = true
 skip_covered = true
 exclude_lines = ["pragma: no cover"]
+
+[tool.pylint.main]
+fail-under = 10.00

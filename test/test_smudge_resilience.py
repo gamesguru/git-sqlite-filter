@@ -1,3 +1,5 @@
+"""Tests for smudge filter resilience against bad input."""
+
 import os
 import sqlite3
 import unittest
@@ -8,6 +10,8 @@ from git_sqlite_filter.smudge import DatabaseRestorer
 
 
 class TestSmudgeResilience(unittest.TestCase):
+    """Test harness for resilience scenarios."""
+
     def test_missing_table_warning(self):
         """
         Verify that inserts into missing tables log a warning but do not abort the restoration.
