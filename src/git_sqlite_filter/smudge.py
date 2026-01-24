@@ -50,15 +50,17 @@ def filter_sql_stream(stream, debug=False):
 
             # Skip FTS5 internal triggers (they auto-recreate on FTS table creation)
             if "CREATE TRIGGER" in statement_upper:
-                parts = statement_upper.split()
-                if len(parts) > 2:
-                    trigger_name = parts[2]
+                # Regex to find the table name the trigger is ON
+                # Matches: ON [schema.]table_name
+                match = re.search(r"ON\s+[\"']?([a-zA-Z0-9_]+)[\"']?", statement_upper)
+                if match:
+                    table_name = match.group(1)
                     if any(
-                        x in statement_upper
+                        table_name.endswith(x)
                         for x in ("_CONTENT", "_DOC", "_CONFIG", "_IDX", "_DATA")
                     ):
                         if debug:
-                            log(f"skipping FTS5 internal trigger: {trigger_name}")
+                            log(f"skipping FTS5 internal trigger on {table_name}")
                         continue
 
             # Skip ROLLBACK - if this appears, the dump is corrupted, just skip it
@@ -113,8 +115,12 @@ class DatabaseRestorer:
 
             # Step 2: Attempt restoration (multi-pass if new collations are found)
             max_retries = 100
+            # Step 2: Attempt restoration (multi-pass if new collations are found)
+            max_retries = 100
             for i in range(max_retries):
                 self._create_temp_db()
+                retry_needed = False
+
                 try:
                     if self.debug:
                         log(f"restoration attempt {i+1}...")
@@ -124,18 +130,44 @@ class DatabaseRestorer:
                         # (though it's already statement-per-yield from the iterator)
                         # We use a simple generator to re-yield statements from the file.
                         for statement in self._yield_statements(f_sql):
-                            if statement.strip():
+                            if not statement.strip():
+                                continue
+
+                            try:
                                 self.conn.execute(statement)
-                    return True
+                            except sqlite3.OperationalError as e:
+                                if self.debug:
+                                    log(f"caught operational error: {e}")
+
+                                # 1. Collation Error: MUST retry the whole process (broken state)
+                                if self._ensure_collation(e):
+                                    retry_needed = True
+                                    break
+
+                                # 2. Ignorable Error: WARN and continue to next statement
+                                e_str = str(e).lower()
+                                if "no such table" in e_str or (
+                                    "index" in e_str and "already exists" in e_str
+                                ):
+                                    log(f"warning: ignoring error: {e}")
+                                    continue
+
+                                # 3. Fatal Error: Raise to outer block
+                                raise
+
                 except sqlite3.OperationalError as e:
-                    if self.debug:
-                        log(f"caught operational error: {e}")
-                    if not self._ensure_collation(e):
-                        log(f"error: restore failed: {e}")
-                        return False
+                    log(f"error: restore failed: {e}")
+                    return False
                 finally:
+                    if not retry_needed and self.conn:
+                        self.conn.close()
+
+                if retry_needed:
                     if self.conn:
                         self.conn.close()
+                    continue
+
+                return True
             return False
         finally:
             if os.path.exists(sql_tmp_path):

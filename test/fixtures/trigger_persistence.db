@@ -1,0 +1,12 @@
+PRAGMA user_version = 0;
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE access_log (id INTEGER PRIMARY KEY, user_id INTEGER);
+CREATE TABLE user_data (id INTEGER PRIMARY KEY, info TEXT);
+INSERT INTO "access_log" ("id", "user_id") VALUES (100, 1);
+INSERT INTO "user_data" ("id", "info") VALUES (1, 'alice');
+CREATE TRIGGER log_access AFTER INSERT ON access_log
+    BEGIN
+        SELECT id FROM user_data WHERE id = NEW.user_id;
+    END;
+COMMIT;

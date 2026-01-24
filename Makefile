@@ -69,6 +69,8 @@ format:	##H @General Run black & isort
 .PHONY: lint
 lint: ##H @General Run ruff lint
 	ruff check src/git_sqlite_filter test
+	pylint src/git_sqlite_filter test
+	mypy src/git_sqlite_filter test
 
 .PHONY: test
 test: ##H @General Run tests w/ coverage report

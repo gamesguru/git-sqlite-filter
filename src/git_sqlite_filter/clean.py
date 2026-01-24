@@ -104,9 +104,40 @@ class DatabaseDumper:
                 return True
         return False
 
+    def _find_shadow_tables(self):
+        """Identify actual FTS shadow tables by scanning virtual table definitions."""
+        shadow_tables = set()
+        # Scan for FTS3/4/5 tables
+        vtabs = self.conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE sql LIKE '%VIRTUAL TABLE%USING fts%'"
+        ).fetchall()
+
+        for name, sql in vtabs:
+            # Check which FTS version is used
+            sql_upper = sql.upper()
+            if "USING FTS5" in sql_upper:
+                # FTS5 creates: _data, _idx, _content, _docsize, _config
+                suffixes = ["_data", "_idx", "_content", "_docsize", "_config"]
+            elif "USING FTS3" in sql_upper or "USING FTS4" in sql_upper:
+                # FTS3/4 creates: _content, _segments, _segdir, _docsize, _stat
+                suffixes = ["_content", "_segments", "_segdir", "_docsize", "_stat"]
+            else:
+                continue
+
+            for suffix in suffixes:
+                shadow_name = f"{name}{suffix}"
+                shadow_tables.add(shadow_name)
+
+        if self.debug and shadow_tables:
+            log(f"identified shadow tables: {shadow_tables}")
+        return shadow_tables
+
     def dump(self):
         """Perform the full semantic dump."""
         try:
+            # 0. Identify Shadow Tables (Pre-scan)
+            shadow_tables = self._find_shadow_tables()
+
             # 1. Metadata / Versioning
             user_version = self.conn.execute("PRAGMA user_version").fetchone()[0]
             if not self.args.data_only:
@@ -132,11 +163,12 @@ class DatabaseDumper:
             # 3. Output Schema (Tables/Views)
             if not self.args.data_only:
                 for obj in objects:
-                    # Skip auto-generated FTS5 shadow tables
-                    if re.search(r"_(content|data|idx|docsize|config)$", obj["name"]):
+                    # Skip identified shadow tables
+                    if obj["name"] in shadow_tables:
                         if self.debug:
                             log(f"skipping shadow table schema: {obj['name']}")
                         continue
+
                     if obj["sql"]:
                         # Ensure we have a semicolon and newline
                         sql = obj["sql"].strip()
@@ -147,13 +179,13 @@ class DatabaseDumper:
             # 4. Output Data (Sorted for Noise Reduction)
             if not self.args.schema_only:
                 for obj in [o for o in objects if o["type"] == "table"]:
-                    if re.search(r"_(content|data|idx|docsize|config)$", obj["name"]):
+                    if obj["name"] in shadow_tables:
                         continue
                     self._dump_table_data(obj["name"])
 
             # 5. Finalize (Indexes/Triggers/Sequences)
             if not self.args.data_only:
-                self._dump_extras()
+                self._dump_extras(shadow_tables)
                 sys.stdout.write("COMMIT;\n")
 
             return True
@@ -218,8 +250,10 @@ class DatabaseDumper:
                 if not self._ensure_collation(e):
                     raise
 
-    def _dump_extras(self):
+    def _dump_extras(self, shadow_tables=None):
         """Dump triggers, indexes, and autoincrement sequences."""
+        if shadow_tables is None:
+            shadow_tables = set()
         # Triggers and Indexes (excluding auto-indexes)
         extras = self.conn.execute(
             """
