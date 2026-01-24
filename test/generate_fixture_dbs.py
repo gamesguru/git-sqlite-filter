@@ -1,14 +1,17 @@
-#!/usr/bin/env python3
+"""Helper script to generate fixture databases for testing."""
+
 import os
 import re
 import sqlite3
 
 
 def collation_func(s1, s2):
+    """Simple collation function for testing."""
     return 0 if s1 == s2 else (1 if s1 > s2 else -1)
 
 
 def create_db(path, sql, user_version=None):
+    """Create a database with the given SQL schema/data."""
     if os.path.exists(path):
         os.remove(path)
 
@@ -45,6 +48,7 @@ def create_db(path, sql, user_version=None):
 
 
 def main():
+    """Generate all specified fixture databases."""
     fixture_dir = "test/fixtures"
     os.makedirs(fixture_dir, exist_ok=True)
 
@@ -129,7 +133,8 @@ def main():
         """
         CREATE TABLE seq_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT);
         INSERT INTO seq_test (val) VALUES ('A'), ('B'), ('C');
-        DELETE FROM seq_test WHERE id = 3; -- Current max id is 3, but highest counter in sequence should be 3
+        -- Current max id is 3, but highest counter in sequence should be 3
+        DELETE FROM seq_test WHERE id = 3;
     """,
     )
 

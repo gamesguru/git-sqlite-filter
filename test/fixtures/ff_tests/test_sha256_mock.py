@@ -4,11 +4,11 @@ import os
 import sqlite3
 from hashlib import pbkdf2_hmac, sha1, sha256
 
-from Crypto.Cipher import AES
-from pyasn1.codec.der.encoder import encode as der_encode
-from pyasn1.type.univ import Integer, ObjectIdentifier, OctetString, Sequence
+from Crypto.Cipher import AES  # type: ignore
+from pyasn1.codec.der.encoder import encode as der_encode  # type: ignore
+from pyasn1.type.univ import Integer, ObjectIdentifier, OctetString, Sequence  # type: ignore
 
-import ffpass
+import ffpass  # type: ignore
 
 # Constants from ffpass (redefined here for test generation)
 OID_PBES2 = (1, 2, 840, 113_549, 1, 5, 13)

@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+"""Script to verify handling of Firefox-like profiles with WAL/Foreign Keys."""
+
 import os
 import sqlite3
 import subprocess
@@ -18,8 +19,7 @@ def create_firefox_style_db(path):
     conn.execute("PRAGMA foreign_keys=ON")
 
     # simplified schema based on places.sqlite
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE moz_places (
             id INTEGER PRIMARY KEY,
             url LONGVARCHAR,
@@ -58,14 +58,14 @@ def create_firefox_style_db(path):
         
         INSERT INTO moz_historyvisits (place_id, visit_date, visit_type) VALUES (1, 1630000000000000, 1);
         INSERT INTO moz_historyvisits (place_id, visit_date, visit_type) VALUES (2, 1630000010000000, 1);
-    """
-    )
+    """)
 
     conn.commit()
     conn.close()
 
 
 def main():
+    """Main verification procedure."""
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
         db_path = tmp.name
 
@@ -80,7 +80,7 @@ def main():
         # If not in path, try to run from source
         if (
             subprocess.run(
-                ["which", "git-sqlite-clean"], capture_output=True
+                ["which", "git-sqlite-clean"], capture_output=True, check=False
             ).returncode
             != 0
         ):
@@ -92,7 +92,7 @@ def main():
             )
             cmd = [sys.executable, src_path, db_path]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode != 0:
             print("ERROR: git-sqlite-clean failed!")

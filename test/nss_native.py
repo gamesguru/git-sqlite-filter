@@ -1,3 +1,5 @@
+"""Native bindings for NSS (Network Security Services) for testing credentials."""
+
 import base64
 import ctypes
 import json
@@ -18,15 +20,27 @@ from pathlib import Path
 
 # --- NSS Structures ---
 class SECItem(Structure):
+    """Represents a SECItem structure in NSS."""
+
+    # pylint: disable=too-few-public-methods
+
     _fields_ = [
         ("type", c_uint),
         ("data", POINTER(c_ubyte)),
         ("len", c_uint),
     ]
 
+    def __init__(self):
+        """Initialize with default values."""
+        super().__init__()
+        self.type = 0
+        self.data = None
+        self.len = 0
+
 
 # --- Load Library ---
 def load_nss():
+    """Attempt to load the libnss3 shared library."""
     paths = [
         "/usr/lib/x86_64-linux-gnu/libnss3.so",
         "/usr/lib/libnss3.so",
@@ -44,12 +58,13 @@ def load_nss():
 
 
 def decrypt_sdr(lib, b64_data):
+    """Decrypt base64 data using PK11SDR_Decrypt."""
     if not b64_data:
         return None
 
     try:
         raw_data = base64.b64decode(b64_data)
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
     # Prepare SECItem input
@@ -74,8 +89,8 @@ def decrypt_sdr(lib, b64_data):
             byref(item_out), 0
         )  # 0 = freeItem (don't free structure itself if not allocated)
         return content.decode("utf-8", errors="replace")
-    else:
-        return None
+
+    return None
 
 
 def get_native_logins(directory: Path, password: str) -> list:
@@ -84,6 +99,9 @@ def get_native_logins(directory: Path, password: str) -> list:
     Returns a list of dicts: {'hostname': ..., 'username': ..., 'password': ...}
     Returns empty list on failure.
     """
+
+    # pylint: disable=too-many-return-statements
+
     # Accept Path or str
     profile_path = str(directory)
 
@@ -129,7 +147,7 @@ def get_native_logins(directory: Path, password: str) -> list:
         # Authenticate
         slot = lib.PK11_GetInternalKeySlot()
         if not slot:
-            raise Exception("Could not get internal key slot")
+            raise RuntimeError("Could not get internal key slot")
 
         res = lib.PK11_CheckUserPassword(slot, password.encode("utf-8"))
         if res != 0:
@@ -141,34 +159,39 @@ def get_native_logins(directory: Path, password: str) -> list:
         if not os.path.exists(logins_path):
             return []  # No file, empty list
 
-        with open(logins_path, "r") as f:
+        with open(logins_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         if "logins" not in data:
             return []
 
-        results = []
-        for login in data["logins"]:
-            hostname = login.get("hostname", "")
-            enc_user = login.get("encryptedUsername")
-            enc_pass = login.get("encryptedPassword")
-
-            dec_user = decrypt_sdr(lib, enc_user)
-            dec_pass = decrypt_sdr(lib, enc_pass)
-
-            if dec_user is None:
-                dec_user = "(error)"
-            if dec_pass is None:
-                dec_pass = "(error)"
-
-            results.append(
-                {"hostname": hostname, "username": dec_user, "password": dec_pass}
-            )
-
+        results = _parse_logins_data(lib, data["logins"])
         return results
 
-    except Exception as e:
+    except (RuntimeError, OSError, TypeError, ValueError) as e:
         print(f"Native decryption loop failed: {e}")
         return []
     finally:
         lib.NSS_Shutdown()
+
+
+def _parse_logins_data(lib, logins_list):
+    """Decrypt the list of login entries."""
+    results = []
+    for login in logins_list:
+        hostname = login.get("hostname", "")
+        enc_user = login.get("encryptedUsername")
+        enc_pass = login.get("encryptedPassword")
+
+        dec_user = decrypt_sdr(lib, enc_user)
+        dec_pass = decrypt_sdr(lib, enc_pass)
+
+        if dec_user is None:
+            dec_user = "(error)"
+        if dec_pass is None:
+            dec_pass = "(error)"
+
+        results.append(
+            {"hostname": hostname, "username": dec_user, "password": dec_pass}
+        )
+    return results

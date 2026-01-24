@@ -17,7 +17,7 @@ import pytest
 # Allow importing ffpass from source
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import ffpass  # noqa: E402
+import ffpass  # type: ignore  # noqa: E402
 from ffpass import main  # noqa: E402
 
 MASTER_PASSWORD = "password123"
@@ -29,7 +29,7 @@ def mp_profile(tmp_path):
     Setup the MP profile with REAL encrypted data.
     Requires running scripts/generate_mp_profile.py first.
     """
-    src = Path("test/fixtures/ff-tests/firefox-mp-test")
+    src = Path("test/fixtures/ff_tests/firefox-mp-test")
     if not src.exists():
         pytest.fail(
             "Run scripts/generate_mp_profile.py first to generate real crypto assets"

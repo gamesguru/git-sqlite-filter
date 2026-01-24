@@ -8,12 +8,13 @@ Created on Fri Dec 25 19:30:48 2025
 
 from unittest.mock import patch
 
+from ffpass import main  # type: ignore
+
 HEADER = "url,username,password"
 EXPECTED_MIXED_OUTPUT = [HEADER, "http://www.mixedkeys.com,modern_user,modern_pass"]
 
 
 def run_ffpass_internal(mode, path):
-    from ffpass import main
 
     test_args = ["ffpass", mode, "-d", str(path)]
 
